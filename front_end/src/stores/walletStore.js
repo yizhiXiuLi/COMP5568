@@ -1,15 +1,12 @@
 import { defineStore } from 'pinia';
-import { fromWei, calculateAPY } from '@/utils/format';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESSES, DECIMALS } from '@/constants/addresses';
 import { ElMessage } from 'element-plus';
-
-// 模拟大数（替代ethers.BigNumber）
-const mockBigNumber = (num, decimals = 18) => {
-  return {
-    _hex: '0x' + num.toString(16),
-    toString: () => num.toString(),
-    toNumber: () => num
-  };
-};
+import LENDING_POOL_ABI from '@/constants/abis/LendingPool.json';
+import WBTC_ABI from '@/constants/abis/WBTCToken.json';
+import STABLECOIN_ABI from '@/constants/abis/Stablecoin.json';
+import PRICE_ORACLE_ABI from '@/constants/abis/PriceOracle.json';
+import { fromWei, calculateAPY } from '@/utils/format';
 
 export const useWalletStore = defineStore('wallet', {
   state: () => ({
@@ -18,205 +15,234 @@ export const useWalletStore = defineStore('wallet', {
     provider: null,
     signer: null,
     isConnected: false,
-    // 模拟合约实例（空对象，仅占位）
+    // 4个合约实例
     contracts: {
-      lendingPool: {},
-      wbtc: {},
-      stablecoin: {},
-      priceOracle: {}
+      lendingPool: null,
+      wbtc: null,
+      stablecoin: null,
+      priceOracle: null 
     },
-    // 模拟账户数据
+    // 账户核心数据
     accountData: {
-      collateralWbtc: '0.5',    // 已抵押wBTC
-      debtStable: '1000',       // 稳定币债务
-      healthFactor: '1.8',      // 健康因子
-      wbtcBalance: '1.2',       // 钱包wBTC余额
-      stableBalance: '5000',    // 钱包稳定币余额
-      maxBorrowable: '2000'     // 最大可借额度
+      collateralWbtc: '0',    // 已抵押wBTC（来自LendingPool）
+      debtStable: '0',        // 稳定币债务（来自LendingPool）
+      healthFactor: '0',      // 健康因子（来自LendingPool）
+      wbtcBalance: '0',       // 钱包wBTC余额（直接来自WBTCToken）
+      stableBalance: '0',     // 钱包稳定币余额（直接来自Stablecoin）
+      maxBorrowable: '0'      // 最大可借额度（来自LendingPool）
     },
-    // 模拟市场数据
+    // 市场数据（从PriceOracle直接获取价格）
     marketData: {
-      wbtcPrice: '50000',       // wBTC价格（稳定币）
-      wbtcPriceRaw: mockBigNumber(50000 * 10 ** 18),
-      borrowRatePerBlock: '0.0000001',
-      borrowAPY: '6.8',         // 借款APY
-      lastPriceUpdate: Date.now() // 价格最后更新时间
+      wbtcPrice: '0',         // wBTC价格（直接来自PriceOracle）
+      wbtcPriceRaw: 0,        // 原始大数（用于计算）
+      borrowRatePerBlock: '0',// 每区块借款利率（来自LendingPool）
+      borrowAPY: '0',         // 借款APY
+      lastPriceUpdate: 0      // 价格最后更新时间（来自PriceOracle）
     },
     // 加载状态
     loading: false
   }),
 
   actions: {
-    // 模拟连接钱包（无需真实MetaMask）
+    // 连接钱包并初始化4个合约实例
     async connectWallet() {
+      if (!window.ethereum) {
+        ElMessage.error('请安装MetaMask钱包！');
+        return;
+      }
+
       this.loading = true;
       try {
-        // 模拟延迟
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        // 模拟钱包地址
-        this.address = '0x' + Math.random().toString(16).substr(2, 40);
+        // 初始化Provider和Signer
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send('eth_requestAccounts', []);
+        const signer = await provider.getSigner();
+        const address = await signer.getAddress();
+
+        // 初始化4个合约实例（直接交互，核心修正）
+        const contracts = {
+          lendingPool: new ethers.Contract(CONTRACT_ADDRESSES.LENDING_POOL, LENDING_POOL_ABI.output.abi, signer),
+          wbtc: new ethers.Contract(CONTRACT_ADDRESSES.WBTC, WBTC_ABI.output.abi, signer),
+          stablecoin: new ethers.Contract(CONTRACT_ADDRESSES.STABLECOIN, STABLECOIN_ABI.output.abi, signer),
+          priceOracle: new ethers.Contract(CONTRACT_ADDRESSES.PRICE_ORACLE, PRICE_ORACLE_ABI.output.abi, signer)
+        };
+
+        // 更新状态
+        this.address = address;
+        this.provider = provider;
+        this.signer = signer;
+        this.contracts = contracts;
         this.isConnected = true;
-        ElMessage.success('钱包连接成功！（模拟）');
+
+        this.setupEventListeners();
+
+        // 拉取所有数据
+        await this.refreshAllData();
+        ElMessage.success('钱包连接成功！');
       } catch (error) {
+        console.error('连接钱包失败:', error);
         ElMessage.error('连接失败：' + error.message);
       } finally {
         this.loading = false;
       }
     },
 
-    // 模拟断开钱包
-    disconnectWallet() {
-      this.$reset();
-      ElMessage.info('钱包已断开（模拟）');
+    // 监听逻辑
+    async setupEventListeners() {
+      if (!window.ethereum) return;
+
+      // 移除旧的监听防止重复绑定
+      window.ethereum.removeAllListeners('accountsChanged');
+      window.ethereum.removeAllListeners('chainChanged');
+
+      // 监听账号切换
+      window.ethereum.on('accountsChanged', async(accounts) => {
+        if (accounts.length === 0) {
+          this.disconnectWallet(); // 用户在 MetaMask 中断开
+        } else {
+          // 账号切换后需重新获取 signer 和 合约实例，否则无法发起交易
+          const provider = new ethers.BrowserProvider(window.ethereum);
+          this.signer = await provider.getSigner();
+          // 重新初始化合约以绑定新的 Signer
+          this.contracts = {
+            lendingPool: new ethers.Contract(CONTRACT_ADDRESSES.LENDING_POOL, LENDING_POOL_ABI, this.signer),
+            wbtc: new ethers.Contract(CONTRACT_ADDRESSES.WBTC, WBTC_ABI, this.signer),
+            stablecoin: new ethers.Contract(CONTRACT_ADDRESSES.STABLECOIN, STABLECOIN_ABI, this.signer),
+            priceOracle: new ethers.Contract(CONTRACT_ADDRESSES.PRICE_ORACLE, PRICE_ORACLE_ABI, this.signer)
+          };
+          await this.refreshAllData();
+          ElMessage.info('已切换账号');
+        }
+      });
+
+      // 监听链切换
+      window.ethereum.on('chainChanged', () => {
+        window.location.reload(); // 链切换建议直接刷新页面以重置所有状态
+      });
     },
 
-    // 模拟刷新所有数据（随机生成合理范围的模拟数据）
+    // 断开钱包
+    disconnectWallet() {
+      this.address = null;
+      this.isConnected = false;
+      this.signer = null;
+      this.contracts = {
+        lendingPool: null,
+        wbtc: null,
+        stablecoin: null,
+        priceOracle: null
+      };
+      // 清空账户余额数据
+      this.accountData = {
+        collateralWbtc: '0',
+        debtStable: '0',
+        healthFactor: '0',
+        wbtcBalance: '0',
+        stableBalance: '0',
+        maxBorrowable: '0'
+      };
+      ElMessage.warning('钱包已断开连接');
+    },
+
+    // 刷新所有数据
     async refreshAllData() {
       if (!this.isConnected) return;
       this.loading = true;
       try {
-        // 模拟延迟
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // 随机更新数据（保持合理范围）
-        this.accountData = {
-          collateralWbtc: (Math.random() * 1 + 0.2).toFixed(4),    // 0.2-1.2 wBTC
-          debtStable: (Math.random() * 2000 + 500).toFixed(0),     // 500-2500 稳定币
-          healthFactor: (Math.random() * 1 + 1.0).toFixed(2),      // 1.0-2.0 健康因子
-          wbtcBalance: (Math.random() * 2 + 0.5).toFixed(4),       // 0.5-2.5 wBTC
-          stableBalance: (Math.random() * 5000 + 1000).toFixed(0), // 1000-6000 稳定币
-          maxBorrowable: (Math.random() * 2000 + 1000).toFixed(0)  // 1000-3000 稳定币
-        };
-
-        // 随机更新价格（45000-55000）
-        this.marketData.wbtcPrice = (Math.random() * 10000 + 45000).toFixed(0);
-        this.marketData.wbtcPriceRaw = mockBigNumber(Number(this.marketData.wbtcPrice) * 10 ** 18);
-        this.marketData.lastPriceUpdate = Date.now();
-
-        ElMessage.success('数据刷新成功！（模拟）');
+        await Promise.all([
+          this.refreshAccountDataFromLendingPool(), // 从LendingPool获取借贷数据
+          this.refreshTokenBalancesFromERC20(),     // 直接从ERC20获取余额
+          this.refreshPriceFromOracle(),            // 直接从PriceOracle获取价格
+          this.refreshRateFromLendingPool()         // 从LendingPool获取利率
+        ]);
       } catch (error) {
-        ElMessage.error('数据刷新失败（模拟）');
+        console.error('刷新数据失败:', error);
+        ElMessage.error('数据刷新失败');
       } finally {
         this.loading = false;
       }
     },
 
-    // 模拟检查授权（默认返回已授权）
-    async checkAllowance(tokenType, amount) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      return true; // 模拟已授权
+    // 1. 从LendingPool获取账户借贷数据（独立调用）
+    async refreshAccountDataFromLendingPool() {
+      const { lendingPool } = this.contracts;
+      // 获取账户抵押/债务
+      const [collateralWbtc, debtStable] = await lendingPool.getUserAccount(this.address);
+      // 获取健康因子
+      const healthFactor = await lendingPool.getHealthFactor(this.address);
+      // 获取最大可借额度
+      const maxBorrowable = await lendingPool.getMaxBorrowable(this.address);
+
+      this.accountData = {
+        ...this.accountData,
+        collateralWbtc: fromWei(collateralWbtc, DECIMALS.WBTC),
+        debtStable: fromWei(debtStable, DECIMALS.STABLECOIN),
+        healthFactor: fromWei(healthFactor, DECIMALS.STABLECOIN),
+        maxBorrowable: fromWei(maxBorrowable, DECIMALS.STABLECOIN)
+      };
     },
 
-    // 模拟授权代币
-    async approveToken(tokenType, amount) {
-      if (!this.isConnected) return false;
-      this.loading = true;
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        ElMessage.success(`${tokenType}授权成功！（模拟）`);
-        return true;
-      } catch (error) {
-        ElMessage.error('授权失败：' + error.message);
-        return false;
-      } finally {
-        this.loading = false;
-      }
+    // 2. 直接从ERC20合约获取代币余额（核心修正：独立调用WBTCToken/Stablecoin）
+    async refreshTokenBalancesFromERC20() {
+      const { wbtc, stablecoin } = this.contracts;
+      // 直接调用WBTCToken的balanceOf（而非通过LendingPool）
+      const wbtcBalance = await wbtc.balanceOf(this.address);
+      // 直接调用Stablecoin的balanceOf（而非通过LendingPool）
+      const stableBalance = await stablecoin.balanceOf(this.address);
+
+      this.accountData.wbtcBalance = fromWei(wbtcBalance, DECIMALS.WBTC);
+      this.accountData.stableBalance = fromWei(stableBalance, DECIMALS.STABLECOIN);
     },
 
-    // 模拟抵押wBTC
-    async depositWbtc(amount) {
-      if (!this.isConnected) return;
-      this.loading = true;
-      try {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // 模拟抵押后更新数据
-        this.accountData.collateralWbtc = (Number(this.accountData.collateralWbtc) + Number(amount)).toFixed(4);
-        this.accountData.wbtcBalance = (Number(this.accountData.wbtcBalance) - Number(amount)).toFixed(4);
-        ElMessage.success('抵押成功！（模拟）');
-        return true;
-      } catch (error) {
-        ElMessage.error('抵押失败：' + error.message);
-        return false;
-      } finally {
-        this.loading = false;
-      }
+    // 3. 直接从PriceOracle获取wBTC价格（新增：独立调用预言机）
+    async refreshPriceFromOracle() {
+      const { priceOracle } = this.contracts;
+      // 直接调用PriceOracle的getWbtcPrice
+      const wbtcPriceRaw = await priceOracle.getWbtcPrice();
+      // 获取价格最后更新时间
+      const lastUpdated = await priceOracle.getLastUpdated();
+
+      this.marketData = {
+        ...this.marketData,
+        wbtcPrice: fromWei(wbtcPriceRaw, DECIMALS.STABLECOIN), // 价格单位：稳定币
+        wbtcPriceRaw: wbtcPriceRaw, // 保存原始大数用于计算
+        lastPriceUpdate: Number(lastUpdated) * 1000 // 转为时间戳
+      };
     },
 
-    // 模拟提取wBTC
-    async withdrawWbtc(amount) {
-      if (!this.isConnected) return;
-      this.loading = true;
-      try {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // 模拟提取后更新数据
-        this.accountData.collateralWbtc = (Number(this.accountData.collateralWbtc) - Number(amount)).toFixed(4);
-        this.accountData.wbtcBalance = (Number(this.accountData.wbtcBalance) + Number(amount)).toFixed(4);
-        ElMessage.success('提取成功！（模拟）');
-        return true;
-      } catch (error) {
-        ElMessage.error('提取失败：' + error.message);
-        return false;
-      } finally {
-        this.loading = false;
-      }
+    // 4. 从LendingPool获取利率数据
+    async refreshRateFromLendingPool() {
+      const { lendingPool } = this.contracts;
+      // 直接调用LendingPool的getBorrowRatePerBlock
+      const borrowRatePerBlock = await lendingPool.getBorrowRatePerBlock();
+      // 计算APY
+      const borrowAPY = calculateAPY(borrowRatePerBlock);
+
+      this.marketData = {
+        ...this.marketData,
+        borrowRatePerBlock: fromWei(borrowRatePerBlock),
+        borrowAPY
+      };
     },
 
-    // 模拟借款稳定币
-    async borrowStable(amount) {
-      if (!this.isConnected) return;
-      this.loading = true;
-      try {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // 模拟借款后更新数据
-        this.accountData.debtStable = (Number(this.accountData.debtStable) + Number(amount)).toFixed(0);
-        this.accountData.stableBalance = (Number(this.accountData.stableBalance) + Number(amount)).toFixed(0);
-        this.accountData.healthFactor = (Number(this.accountData.healthFactor) - 0.1).toFixed(2); // 健康因子下降
-        ElMessage.success('借款成功！（模拟）');
-        return true;
-      } catch (error) {
-        ElMessage.error('借款失败：' + error.message);
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    // 模拟还款稳定币
-    async repayStable(amount) {
-      if (!this.isConnected) return;
-      this.loading = true;
-      try {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        // 模拟还款后更新数据
-        this.accountData.debtStable = (Number(this.accountData.debtStable) - Number(amount)).toFixed(0);
-        this.accountData.stableBalance = (Number(this.accountData.stableBalance) - Number(amount)).toFixed(0);
-        this.accountData.healthFactor = (Number(this.accountData.healthFactor) + 0.1).toFixed(2); // 健康因子上升
-        ElMessage.success('还款成功！（模拟）');
-        return true;
-      } catch (error) {
-        ElMessage.error('还款失败：' + error.message);
-        return false;
-      } finally {
-        this.loading = false;
-      }
-    },
-
-    // 模拟触发价格更新
+    // 触发PriceOracle的价格波动（新增：交互预言机）
     async triggerPriceUpdate() {
       if (!this.isConnected) return;
       this.loading = true;
       try {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        // 随机更新价格（45000-55000）
-        this.marketData.wbtcPrice = (Math.random() * 10000 + 45000).toFixed(0);
-        this.marketData.wbtcPriceRaw = mockBigNumber(Number(this.marketData.wbtcPrice) * 10 ** 18);
-        this.marketData.lastPriceUpdate = Date.now();
-        ElMessage.success('wBTC价格已更新！（模拟）');
+        const { priceOracle } = this.contracts;
+        const tx = await priceOracle.updatePrice();
+        ElMessage.info('触发价格波动中...');
+        await tx.wait();
+        // 刷新最新价格
+        await this.refreshPriceFromOracle();
+        ElMessage.success('wBTC价格已更新！');
       } catch (error) {
+        console.error('更新价格失败:', error);
         ElMessage.error('价格更新失败：' + error.message);
       } finally {
         this.loading = false;
       }
-    }
+    },
   }
 });

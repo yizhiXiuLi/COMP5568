@@ -261,24 +261,6 @@
 				"type": "function"
 			},
 			{
-				"inputs": [
-					{
-						"internalType": "address",
-						"name": "from",
-						"type": "address"
-					},
-					{
-						"internalType": "uint256",
-						"name": "amount",
-						"type": "uint256"
-					}
-				],
-				"name": "burn",
-				"outputs": [],
-				"stateMutability": "nonpayable",
-				"type": "function"
-			},
-			{
 				"inputs": [],
 				"name": "decimals",
 				"outputs": [
@@ -557,7 +539,7 @@
 	},
 	"settings": {
 		"compilationTarget": {
-			"contracts/Stablecoin.sol": "Stablecoin"
+			"contracts/WBTCToken.sol": "WBTCToken"
 		},
 		"evmVersion": "prague",
 		"libraries": {},
@@ -619,12 +601,12 @@
 				"dweb:/ipfs/Qmax9WHBnVsZP46ZxEMNRQpLQnrdE4dK8LehML1Py8FowF"
 			]
 		},
-		"contracts/Stablecoin.sol": {
-			"keccak256": "0x011e4e64221ba22e0b8ae83c8ab1dd5bfed9d58f9e267b33aad3d61892b97a36",
+		"contracts/WBTCToken.sol": {
+			"keccak256": "0x6d3fbea87a2bf1e1f99e2e28605bc972eb5e2854686f18e00c1100434aa05ab1",
 			"license": "MIT",
 			"urls": [
-				"bzz-raw://7967094cbfdda49df21f397d054e9e861257308045da1871ce7526c3be2a761b",
-				"dweb:/ipfs/QmZfw2Upemgr8kTg7xNBCvpYMvhQtsAJGdJVQd9Lbs2VU5"
+				"bzz-raw://7dcb050d0aeccec942f10b55e8afe21235512adf61b2698d35545497750d81f6",
+				"dweb:/ipfs/QmNkMKsnG7Qg962gq1eMLKFaPH2u7M4oa65dng4vfBkKwZ"
 			]
 		}
 	},
