@@ -8,7 +8,7 @@
       :stroke-width="16"
       class="hf-progress"
     />
-    <div v-if="!isSafe" class="hf-warning">
+    <div v-if="displayHf !== '∞' && !isSafe" class="hf-warning">
       ⚠️ 健康因子低于1.1，有清算风险！
     </div>
   </div>
@@ -37,6 +37,7 @@ const displayHf = computed(() => {
 
 // 健康因子百分比（相对1.1的比例）
 const hfPercentage = computed(() => {
+  if (displayHf.value === '∞') return 100;
   const hf = Number(displayHf.value);
   const percentage = (hf / 1.1) * 100;
   return Math.min(Math.max(percentage, 0), 100);
@@ -44,7 +45,10 @@ const hfPercentage = computed(() => {
 
 // 健康因子状态
 const hfStatus = computed(() => {
+  if (displayHf.value === '∞') return 'success';
+  
   const hf = Number(displayHf.value);
+  if (isNaN(hf)) return 'exception';
   if (hf >= 1.5) return 'success';
   if (hf >= 1.1) return 'normal';
   if (hf >= 1.0) return 'warning';
@@ -53,6 +57,7 @@ const hfStatus = computed(() => {
 
 // 是否安全
 const isSafe = computed(() => {
+  if (displayHf.value === '∞') return true;
   return isHfSafe(Number(displayHf.value));
 });
 </script>

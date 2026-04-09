@@ -1,221 +1,200 @@
 <template>
-  <div class="rate-chart">
-    <div class="chart-header">
-      <span>{{ title }}</span>
-      <el-select
-        v-model="timeRange"
-        size="small"
-        @change="refreshChartData"
-        style="width: 120px;"
-      >
-        <el-option label="1小时" value="1h"></el-option>
-        <el-option label="24小时" value="24h"></el-option>
-        <el-option label="7天" value="7d"></el-option>
-      </el-select>
+  <div class="rate-chart-container">
+    <div class="chart-title" v-if="title">{{ title }}</div>
+    <div class="chart-stats" v-if="type === 'rate'">
+      <div class="stat-item">
+        <span class="stat-label">Current Utilization Rate</span>
+        <span class="stat-value">{{ formattedUtilization }}%</span>
+      </div>
     </div>
-    <!-- ECharts容器 -->
-    <v-chart
-      :options="chartOptions"
-      autoresize
-      class="chart-container"
-    />
+    <div ref="chartRef" class="echarts-box"></div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
-import { use } from 'echarts/core';
-import VChart from 'vue-echarts';
-// 引入ECharts组件
-import { LineChart } from 'echarts/charts';
-import {
-  TitleComponent,
-  TooltipComponent,
-  LegendComponent,
-  GridComponent,
-  DataZoomComponent
-} from 'echarts/components';
-import { CanvasRenderer } from 'echarts/renderers';
+import { ref, onMounted, watch, computed } from 'vue';
+import * as echarts from 'echarts';
+import { BrowserProvider, Contract, formatUnits } from 'ethers';
 
-// 注册ECharts组件
-use([
-  LineChart,
-  TitleComponent,
-  TooltipComponent,
-  LegendComponent,
-  GridComponent,
-  DataZoomComponent,
-  CanvasRenderer
-]);
-
-// 接收父组件传参
 const props = defineProps({
-  // 图表类型：rate（利率）/ price（价格）
-  type: {
-    type: String,
-    required: true,
-    validator: (val) => ['rate', 'price'].includes(val)
-  },
-  // 标题（可选）
-  title: {
-    type: String,
-    default: ''
-  },
-  // 模拟数据的基础值（可选）
-  baseValue: {
-    type: Number,
-    default: 0
-  }
+  type: { type: String, required: true },
+  title: { type: String, default: '' },
+  baseValue: { type: Number, default: 0 },
+  contractAddress: { type: String, required: true },
+  abi: { type: [Array, Object], required: true }
 });
 
-// 时间范围
-const timeRange = ref('24h');
+const chartRef = ref(null);
+let chartInstance = null;
 
-// 生成模拟数据（基于时间范围）
-const generateMockData = () => {
-  // 时间点数量
-  let pointCount = 24; // 默认24小时
-  if (timeRange.value === '1h') pointCount = 60; // 1小时=60分钟
-  if (timeRange.value === '7d') pointCount = 7 * 24; // 7天=168小时
+// 响应式数据
+const currentUtilization = ref(0); 
+const derivedTotalSupply = ref(0);
+const derivedTotalDebt = ref(0);
 
-  const now = new Date();
-  const xAxisData = []; // X轴：时间
-  const seriesData = []; // Y轴：数值
+const formattedUtilization = computed(() => (currentUtilization.value * 100).toFixed(2));
 
-  // 基础值（模拟波动）
-  let base = props.baseValue || (props.type === 'rate' ? 6.8 : 50000);
-  
-  // 生成数据点
-  for (let i = pointCount - 1; i >= 0; i--) {
-    // 时间格式化
-    const time = new Date(now - i * (timeRange.value === '1h' ? 60000 : 3600000));
-    const timeStr = timeRange.value === '1h' 
-      ? time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      : time.toLocaleDateString() + ' ' + time.toLocaleTimeString([], { hour: '2-digit' });
-    
-    // 数值（带随机波动）
-    const fluctuation = props.type === 'rate' 
-      ? Math.random() * 0.5 - 0.25 // 利率波动±0.25%
-      : Math.random() * 2000 - 1000; // 价格波动±1000
-    
-    const value = (base + fluctuation).toFixed(props.type === 'rate' ? 2 : 0);
+// ====== 目前是静态参数 ======
+const KINK_POINT = 0.80;   // 假设部署时 i_kinkUtilization 是 0.8e18
+const BASE_RATE = 0.00;    
+const RATE_AT_KINK = 0.04; 
+const MAX_RATE = 0.75;     
 
-    xAxisData.push(timeStr);
-    seriesData.push(Number(value));
+const generateKinkedCurveData = () => {
+  const data = [];
+  for (let i = 0; i <= 100; i++) {
+    const u = i / 100; 
+    let rate;
+    if (u <= KINK_POINT) {
+      rate = BASE_RATE + (u / KINK_POINT) * RATE_AT_KINK;
+    } else {
+      const excessU = u - KINK_POINT;
+      const remainingU = 1.0 - KINK_POINT;
+      rate = BASE_RATE + RATE_AT_KINK + (excessU / remainingU) * (MAX_RATE - RATE_AT_KINK);
+    }
+    data.push([u * 100, rate * 100]); 
   }
-
-  return { xAxisData, seriesData };
+  return data;
 };
 
-// 图表数据
-const chartData = ref(generateMockData());
-
-// 刷新图表数据
-const refreshChartData = () => {
-  chartData.value = generateMockData();
+// ====== 图表渲染逻辑 ======
+const initChart = () => {
+  if (!chartRef.value) return;
+  chartInstance = echarts.init(chartRef.value);
+  if (props.type === 'rate') renderRateModel();
 };
 
-// 图表配置项
-const chartOptions = computed(() => {
-  const yAxisName = props.type === 'rate' ? '借款年利率（APY）%' : 'wBTC价格（稳定币）';
-  const color = props.type === 'rate' ? '#409eff' : '#67c23a';
+const renderRateModel = () => {
+  const curveData = generateKinkedCurveData();
+  const currentU = currentUtilization.value * 100; 
 
-  return {
+  const option = {
     tooltip: {
       trigger: 'axis',
-      formatter: (params) => {
-        const [data] = params;
-        return `${data.axisValue}<br/>${yAxisName}：${data.value}`;
+      backgroundColor: '#fff',
+      padding: 12,
+      textStyle: { color: '#333' },
+      extraCssText: 'box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); border-radius: 8px;',
+      formatter: function (params) {
+        const uTarget = params[0].value[0] / 100; // X轴当前的百分比
+        const rate = params[0].value[1];          // Y轴的利率
+
+        let html = `<div style="font-weight:600; margin-bottom:8px; font-size:14px;">
+                      Utilization Rate: <span style="float:right">${(uTarget * 100).toFixed(2)}%</span>
+                    </div>`;
+
+        // 如果我们成功推导出了总盘子的大小，就算出达到该点需要的资金量
+        if (derivedTotalSupply.value > 0) {
+          const targetDebt = uTarget * derivedTotalSupply.value;
+          const diff = derivedTotalDebt.value - targetDebt;
+
+          if (Math.abs(diff) > 0.01) {
+            const action = diff > 0 ? 'Repayment' : 'Borrow';
+            const amount = new Intl.NumberFormat('en-US', { 
+              style: 'currency', currency: 'USD' 
+            }).format(Math.abs(diff));
+
+            html += `<div style="font-size:12px; color:#666; margin-bottom:8px; line-height:1.4;">
+                       ${action} amount to reach ${(uTarget * 100).toFixed(0)}% utilization:
+                       <br/><span style="color:#1a1a1a; font-weight:600;">${amount}</span>
+                     </div>`;
+          }
+        }
+
+        html += `<div style="font-size:12px; color:#666; border-top: 1px solid #eee; padding-top: 8px;">
+                   Borrow APR, variable: <span style="color:#b6509e; font-weight:600; float:right;">${rate.toFixed(2)}%</span>
+                 </div>`;
+        return html;
       }
     },
-    grid: {
-      left: '3%',
-      right: '4%',
-      bottom: '3%',
-      containLabel: true
-    },
+    grid: { left: '3%', right: '5%', bottom: '3%', top: '15%', containLabel: true },
     xAxis: {
-      type: 'category',
-      data: chartData.value.xAxisData,
-      axisLabel: {
-        rotate: 30, // 旋转X轴标签，避免重叠
-        fontSize: 12
-      }
+      type: 'value', min: 0, max: 100,
+      axisLabel: { formatter: '{value}%', color: '#999' },
+      axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }
     },
     yAxis: {
       type: 'value',
-      name: yAxisName,
-      nameTextStyle: {
-        color: color
-      },
-      axisLine: {
-        lineStyle: {
-          color: color
-        }
-      }
+      axisLabel: { formatter: '{value}%', color: '#999' },
+      splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
     },
-    series: [
-      {
-        data: chartData.value.seriesData,
-        type: 'line',
-        smooth: true, // 平滑曲线
-        color: color,
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0,
-            y: 0,
-            x2: 0,
-            y2: 1,
-            colorStops: [
-              { offset: 0, color: color + '80' }, // 半透明
-              { offset: 1, color: color + '10' }  // 更透明
-            ]
-          }
-        },
-        markLine: {
-          silent: true,
-          data: props.type === 'rate' 
-            ? [{ yAxis: 6.0, label: { formatter: '基准利率' } }]
-            : [{ yAxis: 50000, label: { formatter: '基准价格' } }]
-        }
+    series: [{
+      name: 'Borrow APR', type: 'line', showSymbol: false, data: curveData,
+      lineStyle: { color: '#b6509e', width: 2 },
+      markLine: {
+        symbol: ['none', 'none'],
+        label: { formatter: `Current\n${currentU.toFixed(2)}%`, position: 'start', color: '#409eff' },
+        lineStyle: { type: 'dashed', color: '#409eff', width: 1.5 },
+        data: [{ xAxis: currentU }]
       }
-    ],
-    dataZoom: [
-      {
-        type: 'inside', // 内部缩放
-        start: 0,
-        end: 100
-      },
-      {
-        type: 'slider', // 底部滑块
-        start: 0,
-        end: 100
-      }
-    ]
+    }]
   };
+  chartInstance.setOption(option);
+};
+
+// ====== 核心：链上数据读取与逆推 ======
+const fetchOnChainData = async () => {
+  if (props.type !== 'rate' || !window.ethereum) return;
+  
+  try {
+    const provider = new BrowserProvider(window.ethereum);
+    const contract = new Contract(props.contractAddress, props.abi, provider);
+
+    // 1. 获取当前利用率
+    const utilRateRaw = await contract.getUtilizationRate();
+    const uVal = Number(formatUnits(utilRateRaw, 18));
+    currentUtilization.value = uVal;
+
+    // 2. 获取稳定币合约地址，并读取池子里的可用流动性
+    const stablecoinAddress = await contract.getStablecoinAddress();
+    const erc20Abi = [
+      "function balanceOf(address) view returns (uint256)",
+      "function decimals() view returns (uint8)"
+    ];
+    const stableContract = new Contract(stablecoinAddress, erc20Abi, provider);
+    
+    const balanceRaw = await stableContract.balanceOf(props.contractAddress);
+    const decimals = await stableContract.decimals();
+    const availableLiquidity = Number(formatUnits(balanceRaw, decimals));
+
+    // 3. 核心逆推算法
+    if (uVal === 0) {
+      derivedTotalSupply.value = availableLiquidity;
+      derivedTotalDebt.value = 0;
+    } else if (uVal < 1) {
+      derivedTotalDebt.value = (uVal * availableLiquidity) / (1 - uVal);
+      derivedTotalSupply.value = derivedTotalDebt.value + availableLiquidity;
+    } else {
+      // 极端情况：U >= 1 (流动性被借空)
+      derivedTotalDebt.value = 0; // 无法单凭余额推导，前端可做容错处理
+      derivedTotalSupply.value = 0;
+    }
+    
+    renderRateModel();
+  } catch (error) {
+    console.error("Failed to fetch data:", error);
+    currentUtilization.value = props.baseValue / 100 || 0;
+    renderRateModel();
+  }
+};
+
+onMounted(async () => {
+  initChart();
+  window.addEventListener('resize', () => chartInstance?.resize());
+  await fetchOnChainData();
 });
 
-// 初始化图表
-onMounted(() => {
-  refreshChartData();
+watch(() => props.baseValue, () => {
+  if (props.type === 'rate') fetchOnChainData();
 });
 </script>
 
 <style scoped>
-.rate-chart {
-  width: 100%;
-  height: 400px;
-  margin: 16px 0;
-}
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.chart-container {
-  width: 100%;
-  height: calc(100% - 32px);
-}
+.rate-chart-container { width: 100%; padding: 16px; background: #fff; border-radius: 8px; }
+.chart-title { font-size: 14px; color: #333; margin-bottom: 8px; font-weight: 600; }
+.chart-stats { display: flex; margin-bottom: 16px; }
+.stat-item { display: flex; flex-direction: column; }
+.stat-label { font-size: 12px; color: #666; }
+.stat-value { font-size: 20px; font-weight: bold; color: #1a1a1a; }
+.echarts-box { width: 100%; height: 300px; }
 </style>

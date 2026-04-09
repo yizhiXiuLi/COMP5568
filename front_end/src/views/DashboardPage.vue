@@ -2,19 +2,18 @@
   <div class="dashboard">
     <Navbar />
     <div class="dashboard-content">
-      <!-- 未连接钱包 -->
       <div v-if="!isConnected" class="no-connect">
         <el-empty description="请先连接MetaMask钱包以查看账户数据" />
       </div>
 
-      <!-- 已连接钱包 -->
       <div v-else class="data-container">
-        <el-card class="data-card">
+        <el-card class="data-card" v-loading="loading">
           <template #header>
             <div class="card-header">
               <span>账户核心数据</span>
               <el-button 
-                type="text" 
+                type="primary" 
+                link
                 @click="refreshData"
                 :loading="loading"
               >
@@ -24,28 +23,31 @@
           </template>
 
           <div class="data-grid">
-            <!-- 已抵押wBTC -->
             <div class="data-item">
               <div class="item-label">已抵押wBTC</div>
               <div class="item-value">{{ accountData.collateralWbtc }}</div>
+              <div class="item-sub">约 ${{ accountData.totalCollateralUSD }}</div>
             </div>
-            <!-- 稳定币债务 -->
+
             <div class="data-item">
               <div class="item-label">稳定币债务</div>
               <div class="item-value">{{ accountData.debtStable }}</div>
+              <div class="item-sub">实时债务: ${{ accountData.totalDebtUSD }}</div>
             </div>
-            <!-- 最大可借额度 -->
+
             <div class="data-item">
               <div class="item-label">最大可借额度</div>
-              <div class="item-value">{{ accountData.maxBorrowable }}</div>
+              <div class="item-value" style="color: #67c23a;">{{ accountData.maxBorrowable }}</div>
+              <div class="item-sub">单位: Stablecoin</div>
             </div>
-            <!-- wBTC价格（新增：来自PriceOracle） -->
+
             <div class="data-item">
               <div class="item-label">wBTC价格（稳定币）</div>
               <div class="item-value" style="color: #409eff;">
                 {{ marketData.wbtcPrice }}
                 <el-button 
-                  type="text" 
+                  type="primary" 
+                  link
                   size="small" 
                   @click="triggerPriceUpdate"
                   :loading="loading"
@@ -58,17 +60,16 @@
                 最后更新：{{ formatTime(marketData.lastPriceUpdate) }}
               </div>
             </div>
-            <!-- 借款APY -->
+
             <div class="data-item">
               <div class="item-label">借款年利率(APY)</div>
               <div class="item-value">{{ marketData.borrowAPY }}%</div>
+              <div class="item-sub">基于区块奖励计算</div>
             </div>
           </div>
 
-          <!-- 健康因子组件 -->
           <HealthFactor :health-factor="accountData.healthFactor" />
 
-          <!-- 操作按钮 -->
           <div class="action-buttons">
             <el-button 
               type="primary" 
@@ -84,22 +85,25 @@
             </el-button>
           </div>
         </el-card>
+
         <el-card class="chart-card">
           <template #header>
             <span>市场趋势</span>
           </template>
           <div class="chart-grid">
-            <!-- 利率图表 -->
             <RateChart 
               type="rate" 
               title="借款年利率（APY）趋势"
               :base-value="Number(marketData.borrowAPY)"
+              :contract-address="walletStore.lendingPoolAddress" 
+              :abi="LendingPoolABI"
             />
-            <!-- 价格图表 -->
             <RateChart 
               type="price" 
               title="wBTC价格波动"
               :base-value="Number(marketData.wbtcPrice)"
+              :contract-address="walletStore.wbtcAddress" 
+              :abi="WBTCABI"
             />
           </div>
         </el-card>
@@ -109,13 +113,15 @@
 </template>
 
 <script setup>
-import { useWalletStore } from '@/stores/walletStore';
+import { computed, onMounted } from 'vue';
+import { useWalletStore } from '@/stores/walletStore'; 
 import Navbar from '@/components/TopNavbar.vue';
 import HealthFactor from '@/components/HealthFactor.vue';
-import { computed, onMounted } from 'vue';
 import RateChart from '@/components/RateChart.vue';
 
 const walletStore = useWalletStore();
+
+// 状态映射
 const isConnected = computed(() => walletStore.isConnected);
 const loading = computed(() => walletStore.loading);
 const accountData = computed(() => walletStore.accountData);
@@ -126,19 +132,30 @@ const refreshData = () => {
   walletStore.refreshAllData();
 };
 
-// 触发价格波动
-const triggerPriceUpdate = () => {
-  walletStore.triggerPriceUpdate();
+/**
+ * 触发价格波动
+ * 逻辑：调用合约 updatePrice() -> 等待 tx 完成 -> store 自动 refreshPriceFromOracle
+ */
+const triggerPriceUpdate = async () => {
+  await walletStore.triggerPriceUpdate();
+  // 价格变动后，健康因子同步更新
+  await walletStore.refreshAccountDataFromLendingPool();
 };
 
 // 格式化价格更新时间
 const formatTime = (timestamp) => {
-  if (!timestamp) return '未知';
+  if (!timestamp || timestamp === 0) return '尚未更新';
   const d = new Date(timestamp);
-  return `${d.getFullYear()}-${(d.getMonth()+1).toString().padStart(2,'0')}-${d.getDate().toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+  const Y = d.getFullYear();
+  const M = (d.getMonth() + 1).toString().padStart(2, '0');
+  const D = d.getDate().toString().padStart(2, '0');
+  const h = d.getHours().toString().padStart(2, '0');
+  const m = d.getMinutes().toString().padStart(2, '0');
+  const s = d.getSeconds().toString().padStart(2, '0');
+  return `${Y}-${M}-${D} ${h}:${m}:${s}`;
 };
 
-// 页面加载时刷新数据
+// 页面加载逻辑
 onMounted(() => {
   if (walletStore.isConnected) {
     walletStore.refreshAllData();
@@ -169,11 +186,13 @@ onMounted(() => {
 }
 .data-card {
   padding: 16px;
+  border-radius: 8px;
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-weight: bold;
 }
 .data-grid {
   display: grid;
@@ -185,6 +204,7 @@ onMounted(() => {
   padding: 16px;
   background: #f9f9f9;
   border-radius: 8px;
+  border: 1px solid #efefef;
 }
 .item-label {
   font-size: 14px;
@@ -209,6 +229,7 @@ onMounted(() => {
 .chart-card {
   margin-top: 24px;
   padding: 16px;
+  border-radius: 8px;
 }
 .chart-grid {
   display: flex;

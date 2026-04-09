@@ -105,10 +105,10 @@ export const useWalletStore = defineStore('wallet', {
           this.signer = await provider.getSigner();
           // 重新初始化合约以绑定新的 Signer
           this.contracts = {
-            lendingPool: new ethers.Contract(CONTRACT_ADDRESSES.LENDING_POOL, LENDING_POOL_ABI, this.signer),
-            wbtc: new ethers.Contract(CONTRACT_ADDRESSES.WBTC, WBTC_ABI, this.signer),
-            stablecoin: new ethers.Contract(CONTRACT_ADDRESSES.STABLECOIN, STABLECOIN_ABI, this.signer),
-            priceOracle: new ethers.Contract(CONTRACT_ADDRESSES.PRICE_ORACLE, PRICE_ORACLE_ABI, this.signer)
+            lendingPool: new ethers.Contract(CONTRACT_ADDRESSES.LENDING_POOL, LENDING_POOL_ABI.output.abi, this.signer),
+            wbtc: new ethers.Contract(CONTRACT_ADDRESSES.WBTC, WBTC_ABI.output.abi, this.signer),
+            stablecoin: new ethers.Contract(CONTRACT_ADDRESSES.STABLECOIN, STABLECOIN_ABI.output.abi, this.signer),
+            priceOracle: new ethers.Contract(CONTRACT_ADDRESSES.PRICE_ORACLE, PRICE_ORACLE_ABI.output.abi, this.signer)
           };
           await this.refreshAllData();
           ElMessage.info('已切换账号');
@@ -169,16 +169,26 @@ export const useWalletStore = defineStore('wallet', {
       // 获取账户抵押/债务
       const [collateralWbtc, debtStable] = await lendingPool.getUserAccount(this.address);
       // 获取健康因子
-      const healthFactor = await lendingPool.getHealthFactor(this.address);
+      const healthFactorRaw = await lendingPool.getHealthFactor(this.address);
       // 获取最大可借额度
       const maxBorrowable = await lendingPool.getMaxBorrowable(this.address);
+
+      // 获取折算成 USD 的价值（规范 4.2 节）
+      const collateralValue = await lendingPool.getCollateralValue(this.address);
+      const debtValue = await lendingPool.getDebtValue(this.address);
+
+      // 处理健康因子：如果数值过大，视为无穷大
+      let hf = fromWei(healthFactorRaw, 18);
+      if (parseFloat(hf) > 1000000) hf = "∞";
 
       this.accountData = {
         ...this.accountData,
         collateralWbtc: fromWei(collateralWbtc, DECIMALS.WBTC),
         debtStable: fromWei(debtStable, DECIMALS.STABLECOIN),
-        healthFactor: fromWei(healthFactor, DECIMALS.STABLECOIN),
-        maxBorrowable: fromWei(maxBorrowable, DECIMALS.STABLECOIN)
+        healthFactor: hf,
+        maxBorrowable: fromWei(maxBorrowable, DECIMALS.STABLECOIN),
+        totalCollateralUSD: fromWei(collateralValue, 18),
+        totalDebtUSD: fromWei(debtValue, 18)
       };
     },
 
@@ -199,14 +209,15 @@ export const useWalletStore = defineStore('wallet', {
       const { priceOracle } = this.contracts;
       // 直接调用PriceOracle的getWbtcPrice
       const wbtcPriceRaw = await priceOracle.getWbtcPrice();
-      // 获取价格最后更新时间
-      const lastUpdated = await priceOracle.getLastUpdated();
+      // 获取价格最后更新时间（考虑删除）
+      // const lastUpdated = await priceOracle.getLastUpdated();
 
       this.marketData = {
         ...this.marketData,
-        wbtcPrice: fromWei(wbtcPriceRaw, DECIMALS.STABLECOIN), // 价格单位：稳定币
-        wbtcPriceRaw: wbtcPriceRaw, // 保存原始大数用于计算
-        lastPriceUpdate: Number(lastUpdated) * 1000 // 转为时间戳
+        wbtcPrice: fromWei(wbtcPriceRaw, DECIMALS.STABLECOIN),
+        wbtcPriceRaw: wbtcPriceRaw,
+        // 使用本地当前时间
+        lastPriceUpdate: Date.now() 
       };
     },
 
