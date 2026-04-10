@@ -37,6 +37,8 @@ export const useWalletStore = defineStore('wallet', {
       wbtcPriceRaw: 0,        // 原始大数（用于计算）
       borrowRatePerBlock: '0',// 每区块借款利率（来自LendingPool）
       borrowAPY: '0',         // 借款APY
+      supplyAPY: '0',         // 供应APY（来自LendingPool，getSupplyRatePerBlock）
+      utilizationRate: '0',   // 使用率（直接来自LendingPool）
       lastPriceUpdate: 0      // 价格最后更新时间（来自PriceOracle）
     },
     // 加载状态
@@ -224,17 +226,26 @@ export const useWalletStore = defineStore('wallet', {
     // 4. 从LendingPool获取利率数据
     async refreshRateFromLendingPool() {
       const { lendingPool } = this.contracts;
-      // 直接调用LendingPool的getBorrowRatePerBlock
+      // 1. 获取借款利率（原有逻辑）
       const borrowRatePerBlock = await lendingPool.getBorrowRatePerBlock();
-      // 计算APY
       const borrowAPY = calculateAPY(borrowRatePerBlock);
+
+      // 2. 获取存款利率（每区块）并计算supplyAPY
+      const supplyRatePerBlock = await lendingPool.getSupplyRatePerBlock();
+      const supplyAPY = calculateAPY(supplyRatePerBlock); // 复用calculateAPY方法
+
+      // 3. 获取资金利用率（原始值）
+      const utilizationRateRaw = await lendingPool.getUtilizationRate();
+      // 格式化利用率（通常合约返回的是 1e18 精度的小数，需转成百分比）
+      const utilizationRate = (parseFloat(fromWei(utilizationRateRaw)) * 100).toFixed(2);
 
       this.marketData = {
         ...this.marketData,
         borrowRatePerBlock: fromWei(borrowRatePerBlock),
-        borrowAPY
+        borrowAPY,
+        supplyAPY: supplyAPY, // 赋值存款APY
+        utilizationRate: utilizationRate // 赋值资金利用率（百分比）
       };
-      
     },
 
     // 触发PriceOracle的价格波动（交互预言机）

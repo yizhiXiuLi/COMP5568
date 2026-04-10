@@ -66,6 +66,18 @@
               <div class="item-value">{{ marketData.borrowAPY }}%</div>
               <div class="item-sub">基于区块奖励计算</div>
             </div>
+
+            <div class="data-item">
+              <div class="item-label">存款年利率(APY)</div>
+              <div class="item-value" style="color: #00b42a;">{{ marketData.supplyAPY }}%</div>
+              <div class="item-sub">提供流动性收益</div>
+            </div>
+
+            <div class="data-item">
+              <div class="item-label">平台资金利用率</div>
+              <div class="item-value" style="color: #ff7d00;">{{ marketData.utilizationRate }}%</div>
+              <div class="item-sub">总借款/总供给</div>
+            </div>
           </div>
 
           <HealthFactor :health-factor="accountData.healthFactor" />
