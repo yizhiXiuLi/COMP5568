@@ -42,7 +42,9 @@ export const useWalletStore = defineStore('wallet', {
       borrowAPY: '0',         // 借款APY
       supplyAPY: '0',         // 供应APY（来自LendingPool，getSupplyRatePerBlock）
       utilizationRate: '0',   // 使用率（直接来自LendingPool）
-      lastPriceUpdate: 0      // 价格最后更新时间（来自PriceOracle）
+      lastPriceUpdate: 0,     // 价格最后更新时间（来自PriceOracle）
+      collateralFactor: '0',    
+      liquidationThreshold: '0', 
     },
     // 加载状态
     loading: false
@@ -113,19 +115,6 @@ export const useWalletStore = defineStore('wallet', {
       lendingPool.on('Deposited', handleUpdate);
       lendingPool.on('Withdrawn', handleUpdate);
 
-      //  监听借款事件
-      // lendingPool.on('Borrowed', (user, amount) => {
-      //   if (user.toLowerCase() === this.address.toLowerCase()) {
-      //     this.refreshAllData();
-      //   }
-      // });
-      // // 监听还款事件
-      // lendingPool.on('Repaid', (user, amount) => {
-      //   if (user.toLowerCase() === this.address.toLowerCase()) {
-      //     this.refreshAllData();
-      //   }
-      // });
-
       // 监听账号切换
       window.ethereum.on('accountsChanged', async(accounts) => {
         if (accounts.length === 0) {
@@ -175,6 +164,20 @@ export const useWalletStore = defineStore('wallet', {
       ElMessage.warning('钱包已断开连接');
     },
 
+    async refreshProtocolParams() {
+      const { lendingPool } = this.contracts;
+      try {
+        // 调用合约接口：getUserAccount 之外的全局配置
+        const cfRaw = await lendingPool.getCollateralFactor();
+        const ltRaw = await lendingPool.getLiquidationThreshold();
+
+        this.marketData.collateralFactor = fromWei(cfRaw, 18);
+        this.marketData.liquidationThreshold = fromWei(ltRaw, 18);
+      } catch (error) {
+        console.error("获取协议参数失败，使用默认值:", error);
+      }
+    },
+    
     // 刷新所有数据
     async refreshAllData() {
       if (!this.isConnected) return;
@@ -184,7 +187,8 @@ export const useWalletStore = defineStore('wallet', {
           this.refreshAccountDataFromLendingPool(), // 从LendingPool获取借贷数据
           this.refreshTokenBalancesFromERC20(),     // 直接从ERC20获取余额
           this.refreshPriceFromOracle(),            // 直接从PriceOracle获取价格
-          this.refreshRateFromLendingPool()         // 从LendingPool获取利率
+          this.refreshRateFromLendingPool(),        // 从LendingPool获取利率
+          this.refreshProtocolParams()
         ]);
       } catch (error) {
         console.error('刷新数据失败:', error);

@@ -78,6 +78,24 @@
               <div class="item-value" style="color: #ff7d00;">{{ marketData.utilizationRate }}%</div>
               <div class="item-sub">总借款/总供给</div>
             </div>
+            <div class="data-item">
+              <div class="item-label">当前最大抵押率 (LTV)</div>
+              <div class="item-value">
+                {{ (parseFloat(marketData.collateralFactor) * 100).toFixed(0) }}%
+              </div>
+              <div class="item-sub">
+                清算风险阈值: {{ (parseFloat(marketData.liquidationThreshold) * 100).toFixed(0) }}%
+              </div>
+            </div>
+            <div class="data-item">
+              <div class="item-label" style="color: #f56c6c; font-weight: bold;">预估清算价格</div>
+              <div class="item-value" style="color: #f56c6c;">
+                ${{ liquidationPrice }}
+              </div>
+              <div class="item-sub">
+                wBTC 跌至此价将触发清算
+              </div>
+            </div>
           </div>
 
           <HealthFactor :health-factor="accountData.healthFactor" />
@@ -135,6 +153,25 @@ const isConnected = computed(() => walletStore.isConnected);
 const loading = computed(() => walletStore.loading);
 const accountData = computed(() => walletStore.accountData);
 const marketData = computed(() => walletStore.marketData);
+const liquidationPrice = computed(() => {
+  const collateral = parseFloat(accountData.value.collateralWbtc);
+  const debtUSD = parseFloat(accountData.value.totalDebtUSD);
+  
+  // 从 marketData 动态获取清算阈值
+  const threshold = parseFloat(marketData.value.liquidationThreshold) || 0.8;
+
+  if (!collateral || collateral <= 0 || !debtUSD || debtUSD <= 0) {
+    return "无清算风险"; 
+  }
+
+  // 计算公式：清算价格 = 债务 / (抵押数量 * 清算阈值)
+  const price = debtUSD / (collateral * threshold);
+  
+  return price.toLocaleString(undefined, { 
+    minimumFractionDigits: 2, 
+    maximumFractionDigits: 2 
+  });
+});
 
 // 刷新数据
 const refreshData = () => {
@@ -169,6 +206,7 @@ onMounted(() => {
   if (walletStore.isConnected) {
     walletStore.refreshAllData();
   }
+  // window.testStore = walletStore;
 });
 </script>
 
