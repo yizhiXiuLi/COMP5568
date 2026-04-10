@@ -39,7 +39,7 @@
             <el-form-item>
               <el-button 
                 type="primary" 
-                @click="depositWbtc"
+                @click="handleDepositClick"
                 :loading="loading"
                 :disabled="!depositAmount || Number(depositAmount) <= 0"
               >
@@ -63,7 +63,7 @@
             <el-form-item>
               <el-button 
                 type="warning" 
-                @click="withdrawWbtc"
+                @click="handleWithdraw"
                 :loading="loading"
                 :disabled="!withdrawAmount || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > Number(accountData.collateralWbtc)"
               >
@@ -90,60 +90,59 @@
 import { useWalletStore } from '@/stores/walletStore';
 import Navbar from '@/components/TopNavbar.vue';
 import { computed, ref, onMounted, watch } from 'vue';
-import { ElMessage } from 'element-plus';
-import { useRouter } from 'vue-router';
 
 const walletStore = useWalletStore();
 const isConnected = computed(() => walletStore.isConnected);
 const loading = computed(() => walletStore.loading);
 const accountData = computed(() => walletStore.accountData);
-const router = useRouter();
 
 // 操作金额
 const depositAmount = ref('');
 const withdrawAmount = ref('');
+const isWbtcApproved = ref(true); // 初始假设已授权，由 watch 更新
 
 // 抵押按钮文案（根据授权状态动态变化）
-const depositButtonText = ref('抵押 wBTC');
+const depositButtonText = computed(() => {
+  if (loading.value) return '处理中...';
+  return isWbtcApproved.value ? '立即抵押 wBTC' : '第一步：授权 wBTC';
+});
 
 // 检查 wBTC 授权状态
 const checkWbtcApproval = async () => {
-  if (!depositAmount.value || Number(depositAmount.value) <= 0) return;
-  const isApproved = await walletStore.checkAllowance('WBTC', depositAmount.value);
-  depositButtonText.value = isApproved ? '抵押 wBTC' : '授权 wBTC';
+  if (!depositAmount.value || Number(depositAmount.value) <= 0) {
+    isWbtcApproved.value = true;
+    return;
+  }
+  // 调用 store 里的通用检查方法
+  isWbtcApproved.value = await walletStore.checkAllowance('WBTC', depositAmount.value);
 };
 
 // 监听抵押金额变化，实时检查授权
 watch(depositAmount, () => {
-  if (isConnected.value) {
-    checkWbtcApproval();
-  }
+  if (isConnected.value) checkWbtcApproval();
 });
 
-// 抵押 wBTC
-const depositWbtc = async () => {
-  const success = await walletStore.depositWbtc(depositAmount.value);
-  if (success) {
-    depositAmount.value = '';
-  }
-};
-
-// 提取 wBTC
-const withdrawWbtc = async () => {
-  const success = await walletStore.withdrawWbtc(withdrawAmount.value);
-  if (success) {
-    withdrawAmount.value = '';
-  }
-};
-
-// 页面加载时刷新数据
-onMounted(() => {
-  if (isConnected.value) {
-    walletStore.refreshAllData();
+// 处理抵押点击（包含授权逻辑）
+const handleDepositClick = async () => {
+  if (!isWbtcApproved.value) {
+    // 如果没授权，先走授权流程
+    const success = await walletStore.approveWbtc(depositAmount.value);
+    if (success) await checkWbtcApproval(); // 授权成功后刷新状态
   } else {
-    ElMessage.warning('请先连接钱包');
-    router.push('/');
+    // 已经授权，直接抵押
+    const success = await walletStore.depositWbtc(depositAmount.value);
+    if (success) depositAmount.value = '';
   }
+};
+
+// 提取逻辑
+const handleWithdraw = async () => {
+  const success = await walletStore.withdrawWbtc(withdrawAmount.value);
+  if (success) withdrawAmount.value = '';
+};
+
+onMounted(() => {
+  if (isConnected.value) walletStore.refreshAllData();
 });
 </script>
 

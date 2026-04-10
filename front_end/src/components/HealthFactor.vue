@@ -1,88 +1,127 @@
 <template>
-  <div class="health-factor">
-    <div class="hf-label">健康因子 (HF)</div>
-    <div class="hf-value">{{ healthFactor }}</div>
+  <div class="health-factor-container">
+    <div class="hf-header">
+      <span class="label">健康因子 (Health Factor)</span>
+      <span class="value" :class="hfClass">{{ displayHf }}</span>
+    </div>
+
     <el-progress
       :percentage="hfPercentage"
-      :status="hfStatus"
-      :stroke-width="16"
+      :color="hfColor"
+      :stroke-width="12"
+      :show-text="false"
       class="hf-progress"
     />
-    <div v-if="displayHf !== '∞' && !isSafe" class="hf-warning">
-      ⚠️ 健康因子低于1.1，有清算风险！
+
+    <div class="hf-footer">
+      <div v-if="displayHf !== '∞' && Number(displayHf) < 1.1" class="warning-text">
+        <el-icon><WarningFilled /></el-icon> 资产面临清算风险！
+      </div>
+      <div v-else-if="estimatedHf" class="preview-text">
+        (操作后预估)
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, defineProps } from 'vue';
-import { isHfSafe } from '@/utils/validators';
+import { computed } from 'vue';
+import { WarningFilled } from '@element-plus/icons-vue';
 
 const props = defineProps({
   healthFactor: {
     type: String,
     required: true
   },
-  // 预估健康因子（可选，用于借款页实时预览）
+  // 借款/还款时传入的实时计算值
   estimatedHf: {
-    type: String,
+    type: [String, Number],
     default: null
   }
 });
 
-// 显示的健康因子（优先用预估值）
+// 最终显示的数值
 const displayHf = computed(() => {
-  return props.estimatedHf || props.healthFactor;
+  if (props.estimatedHf !== null) return props.estimatedHf;
+  return props.healthFactor;
 });
 
-// 健康因子百分比（相对1.1的比例）
+// 计算进度条百分比 (以 1.1 为清算线，3.0 为安全线上限)
 const hfPercentage = computed(() => {
   if (displayHf.value === '∞') return 100;
-  const hf = Number(displayHf.value);
-  const percentage = (hf / 1.1) * 100;
-  return Math.min(Math.max(percentage, 0), 100);
-});
-
-// 健康因子状态
-const hfStatus = computed(() => {
-  if (displayHf.value === '∞') return 'success';
+  const val = parseFloat(displayHf.value);
+  if (isNaN(val)) return 0;
   
-  const hf = Number(displayHf.value);
-  if (isNaN(hf)) return 'exception';
-  if (hf >= 1.5) return 'success';
-  if (hf >= 1.1) return 'normal';
-  if (hf >= 1.0) return 'warning';
-  return 'exception';
+  // 将 0-3.0 映射到 0-100%
+  const percentage = (val / 3.0) * 100;
+  return Math.min(Math.max(percentage, 5), 100); // 最小给5%展示度
 });
 
-// 是否安全
-const isSafe = computed(() => {
-  if (displayHf.value === '∞') return true;
-  return isHfSafe(Number(displayHf.value));
+// 动态样式类
+const hfClass = computed(() => {
+  if (displayHf.value === '∞') return 'text-success';
+  const val = parseFloat(displayHf.value);
+  if (val >= 1.5) return 'text-success';
+  if (val >= 1.1) return 'text-warning';
+  return 'text-danger';
+});
+
+// 动态颜色
+const hfColor = computed(() => {
+  if (displayHf.value === '∞') return '#67C23A';
+  const val = parseFloat(displayHf.value);
+  if (val >= 1.5) return '#67C23A'; // 绿色
+  if (val >= 1.1) return '#E6A23C'; // 橙色
+  return '#F56C6C'; // 红色
 });
 </script>
 
 <style scoped>
-.health-factor {
+.health-factor-container {
   width: 100%;
-  padding: 16px;
+  padding: 10px 0;
 }
-.hf-label {
+
+.hf-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.label {
   font-size: 14px;
-  color: #666;
-  margin-bottom: 8px;
+  color: #909399;
 }
-.hf-value {
-  font-size: 20px;
+
+.value {
+  font-size: 18px;
   font-weight: bold;
-  margin-bottom: 12px;
 }
+
 .hf-progress {
-  margin-bottom: 8px;
+  margin: 5px 0;
 }
-.hf-warning {
+
+.hf-footer {
+  height: 20px;
   font-size: 12px;
+  margin-top: 4px;
+}
+
+.text-success { color: #67C23A; }
+.text-warning { color: #E6A23C; }
+.text-danger { color: #F56C6C; }
+
+.warning-text {
   color: #f56c6c;
-  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.preview-text {
+  color: #409eff;
+  font-style: italic;
 }
 </style>

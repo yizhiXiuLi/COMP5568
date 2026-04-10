@@ -3,112 +3,81 @@
     <Navbar />
     <div class="borrow-content">
       <div v-if="!isConnected" class="no-connect">
-        <el-empty description="请先连接钱包以进行操作" />
+        <el-empty description="请先连接钱包" />
       </div>
 
       <div v-else class="operation-container">
         <el-card class="operation-card">
           <template #header>
-            <span>借款/还款稳定币</span>
+            <span>借款 / 还款稳定币</span>
           </template>
 
-          <!-- 余额信息 -->
           <div class="balance-info">
             <div class="balance-item">
               <span>稳定币债务：</span>
               <strong>{{ accountData.debtStable }}</strong>
             </div>
             <div class="balance-item">
-              <span>最大可借额度：</span>
+              <span>最大可借：</span>
               <strong>{{ accountData.maxBorrowable }}</strong>
             </div>
             <div class="balance-item">
-              <span>借款年利率：</span>
+              <span>借款APY：</span>
               <strong>{{ marketData.borrowAPY }}%</strong>
             </div>
           </div>
 
-          <!-- 借款操作 -->
-          <el-divider content-position="left">借款稳定币</el-divider>
-          <el-form label-width="100px" class="operation-form">
+          <el-divider left>借款稳定币</el-divider>
+          <el-form label-width="100px">
             <el-form-item label="借款数量">
               <el-input
                 v-model="borrowAmount"
-                placeholder="请输入稳定币数量"
                 type="number"
-                step="1"
-                min="0"
-                :class="{ 'input-danger': !isHfSafe(estimatedHf) }"
                 @input="calculateEstimatedHf"
+                :class="{ 'input-danger': !isHfSafe(estimatedHf) }"
               />
-              <!-- 额度快捷选择器 -->
               <div class="amount-selector">
-                <el-button type="text" @click="setBorrowAmount('25%')">25%</el-button>
-                <el-button type="text" @click="setBorrowAmount('50%')">50%</el-button>
-                <el-button type="text" @click="setBorrowAmount('75%')">75%</el-button>
-                <el-button type="text" @click="setBorrowAmount('100%')">Max</el-button>
+                <el-button link @click="setBorrowAmount('25%')">25%</el-button>
+                <el-button link @click="setBorrowAmount('50%')">50%</el-button>
+                <el-button link @click="setBorrowAmount('75%')">75%</el-button>
+                <el-button link @click="setBorrowAmount('100%')">Max</el-button>
               </div>
             </el-form-item>
-            
-            <!-- 实时健康因子预览 -->
+
             <el-form-item label="预估健康因子">
-              <HealthFactor 
-                :health-factor="accountData.healthFactor"
-                :estimated-hf="estimatedHf"
-              />
+              <HealthFactor :health-factor="accountData.healthFactor" :estimated-hf="estimatedHf" />
             </el-form-item>
-            
+
             <el-form-item>
-              <el-button 
-                type="success" 
-                @click="borrowStable"
-                :loading="loading"
-                :disabled="!borrowAmount || Number(borrowAmount) <= 0 || !validateBorrowInput(borrowAmount)"
-              >
+              <el-button type="success" @click="borrowStable" :loading="loading" :disabled="!borrowAmount">
                 借款稳定币
               </el-button>
             </el-form-item>
           </el-form>
 
-          <!-- 还款操作 -->
-          <el-divider content-position="left">还款稳定币</el-divider>
-          <el-form label-width="100px" class="operation-form">
+          <el-divider left>还款稳定币</el-divider>
+          <el-form label-width="100px">
             <el-form-item label="还款数量">
-              <el-input
-                v-model="repayAmount"
-                placeholder="请输入稳定币数量"
-                type="number"
-                step="1"
-                min="0"
-              />
-              <el-button 
-                type="text" 
-                @click="repayAmount = accountData.debtStable"
-                style="margin-top: 8px;"
-              >
-                全额还款
-              </el-button>
+              <el-input v-model="repayAmount" type="number" placeholder="输入金额">
+                <template #append>
+                  <el-button @click="setMaxRepay">最大</el-button>
+                </template>
+              </el-input>
+              <div class="input-tip">当前可用余额: {{ accountData.stableBalance }}</div>
             </el-form-item>
+
             <el-form-item>
               <el-button 
-                type="info" 
-                @click="repayStable"
-                :loading="loading"
-                :disabled="!repayAmount || Number(repayAmount) <= 0 || Number(repayAmount) > Number(accountData.debtStable)"
+                :type="repayButtonText === '授权稳定币' ? 'warning' : 'primary'" 
+                @click="handleRepay" 
+                :loading="loading" 
+                :disabled="!repayAmount || parseFloat(repayAmount) <= 0"
               >
                 {{ repayButtonText }}
               </el-button>
             </el-form-item>
           </el-form>
-
-          <!-- 返回按钮 -->
-          <el-button 
-            type="text" 
-            @click="router.push('/')"
-            style="margin-top: 24px;"
-          >
-            返回首页
-          </el-button>
+          <el-button text @click="router.push('/')">返回首页</el-button>
         </el-card>
       </div>
     </div>
@@ -121,160 +90,84 @@ import Navbar from '@/components/TopNavbar.vue';
 import HealthFactor from '@/components/HealthFactor.vue';
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
-import { ethers } from 'ethers';
-// 导入时保持原名，局部函数改名以避免冲突
-import { validateBorrowAmount, estimateHealthFactor, isHfSafe } from '@/utils/validators';
+import { isHfSafe, estimateHealthFactor } from '@/utils/validators';
 import { COLLATERAL_FACTOR } from '@/constants/addresses';
 
 const router = useRouter();
 const walletStore = useWalletStore();
+
 const isConnected = computed(() => walletStore.isConnected);
 const loading = computed(() => walletStore.loading);
 const accountData = computed(() => walletStore.accountData);
 const marketData = computed(() => walletStore.marketData);
 
-// 操作金额
 const borrowAmount = ref('');
 const repayAmount = ref('');
-
-// 还款按钮文案
 const repayButtonText = ref('还款稳定币');
-
-// 预估健康因子
 const estimatedHf = ref(accountData.value.healthFactor);
 
-// 核心修正：健康因子计算基于 PriceOracle 的实时价格
 const calculateEstimatedHf = () => {
-  if (!borrowAmount.value || Number(borrowAmount.value) <= 0) {
-    estimatedHf.value = accountData.value.healthFactor;
-    return;
-  }
+  // 直接使用 store 中已经由合约算好的 USD 价值，避免前端计算价格偏差
+  const collateralUSD = accountData.value.totalCollateralUSD;
+  const debtUSD = accountData.value.totalDebtUSD;
+  const inputAmount = borrowAmount.value;
 
-  const wbtcPrice = Number(marketData.value.wbtcPrice);
-  const currentCollateral = Number(accountData.value.collateralWbtc) * wbtcPrice;
-  const currentDebt = Number(accountData.value.debtStable);
-  const borrowAmountNum = Number(borrowAmount.value);
-
-  estimatedHf.value = estimateHealthFactor(
-    currentCollateral,
-    currentDebt,
-    borrowAmountNum,
-    COLLATERAL_FACTOR
-  ).toFixed(4);
+  const hf = estimateHealthFactor(collateralUSD, debtUSD, inputAmount, COLLATERAL_FACTOR);
+  estimatedHf.value = hf === Infinity ? '∞' : hf.toFixed(2);
 };
 
-// 设置借款金额（25%/50%/75%/Max）
-const setBorrowAmount = (percentage) => {
-  const max = Number(accountData.value.maxBorrowable);
-  let amount;
-  switch (percentage) {
-    case '25%': amount = (max * 0.25).toFixed(0); break;
-    case '50%': amount = (max * 0.5).toFixed(0); break;
-    case '75%': amount = (max * 0.75).toFixed(0); break;
-    case '100%': amount = max.toFixed(0); break;
-    default: amount = '0';
-  }
-  borrowAmount.value = amount;
-  calculateEstimatedHf();
+const setMaxRepay = () => {
+  const debt = parseFloat(accountData.value.debtStable);
+  const balance = parseFloat(accountData.value.stableBalance);
+  // 取债务和余额的最小值，防止用户输入超过余额的还款额
+  repayAmount.value = Math.min(debt, balance).toString();
 };
 
-// 修复：重命名局部函数避免与导入冲突，并修正逻辑
-const validateBorrowInput = (amount) => {
-  const maxBorrowable = ethers.parseUnits(accountData.value.maxBorrowable, 18);
-  // 调用导入的验证工具函数
-  return validateBorrowAmount(amount, maxBorrowable);
-};
-
-// 借款稳定币
-const borrowStable = async () => {
-  const success = await walletStore.borrowStable(borrowAmount.value);
-  if (success) {
-    borrowAmount.value = '';
-    router.push('/');
-  }
-};
-
-// 还款稳定币
-const repayStable = async () => {
-  const success = await walletStore.repayStable(repayAmount.value);
-  if (success) {
+// 监听债务变化，若债务为0则重置输入框
+watch(() => accountData.value.debtStable, (newVal) => {
+  if (parseFloat(newVal) <= 0) {
     repayAmount.value = '';
-    router.push('/');
-  }
-};
-
-// 检查稳定币授权状态
-const checkStableApproval = async () => {
-  if (!repayAmount.value || Number(repayAmount.value) <= 0) return;
-  const isApproved = await walletStore.checkAllowance('STABLECOIN', repayAmount.value);
-  repayButtonText.value = isApproved ? '还款稳定币' : '授权稳定币';
-};
-
-// 修复：修正 watch 监听写法
-watch(repayAmount, () => {
-  if (isConnected.value) {
-    checkStableApproval();
   }
 });
 
-// 页面加载时刷新数据
-onMounted(() => {
-  if (isConnected.value) {
-    walletStore.refreshAllData();
-  } else {
-    ElMessage.warning('请先连接钱包');
-    router.push('/');
+const setBorrowAmount = (p) => {
+  const max = Number(accountData.value.maxBorrowable);
+  const map = { '25%': 0.25, '50%': 0.5, '75%': 0.75, '100%': 1 };
+  borrowAmount.value = (max * map[p]).toFixed(0);
+  calculateEstimatedHf();
+};
+
+const borrowStable = async () => {
+  await walletStore.borrowStable(borrowAmount.value);
+  borrowAmount.value = '';
+};
+
+const checkApproval = async () => {
+  if (!repayAmount.value) return;
+  const ok = await walletStore.checkStableAllowance(repayAmount.value);
+  repayButtonText.value = ok ? '还款稳定币' : '授权稳定币';
+};
+
+const handleRepay = async () => {
+  if (repayButtonText.value === '授权稳定币') {
+    await walletStore.approveStablecoin(repayAmount.value);
   }
+  await walletStore.repayStable(repayAmount.value);
+  repayAmount.value = '';
+};
+
+watch(repayAmount, checkApproval);
+onMounted(() => {
+  if (isConnected.value) walletStore.refreshAllData();
 });
 </script>
 
 <style scoped>
-.borrow {
-  min-height: 100vh;
-  background: #f5f7fa;
-}
-.borrow-content {
-  padding: 24px;
-  max-width: 800px;
-  margin: 0 auto;
-}
-.no-connect {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 60vh;
-}
-.operation-container {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-.operation-card {
-  padding: 24px;
-}
-.balance-info {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 24px;
-  margin-bottom: 24px;
-  padding: 16px;
-  background: #f9f9f9;
-  border-radius: 8px;
-}
-.balance-item {
-  font-size: 14px;
-  color: #666;
-}
-.operation-form {
-  margin-bottom: 24px;
-}
-.amount-selector {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-.input-danger {
-  border-color: #f56c6c;
-}
+.borrow { min-height: 100vh; background: #f5f7fa; }
+.borrow-content { padding: 24px; max-width: 800px; margin: 0 auto; }
+.no-connect { display: flex; justify-content: center; padding: 60px 0; }
+.operation-card { padding: 24px; }
+.balance-info { display: flex; gap: 24px; margin-bottom: 20px; }
+.amount-selector { display: flex; gap: 8px; margin-top: 8px; }
+.input-danger { border-color: #f56c6c; }
 </style>

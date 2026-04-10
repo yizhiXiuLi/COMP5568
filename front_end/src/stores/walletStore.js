@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ethers } from 'ethers';
+import { toRaw, markRaw } from 'vue';
 import { CONTRACT_ADDRESSES, DECIMALS } from '@/constants/addresses';
 import { ElMessage } from 'element-plus';
 import LENDING_POOL_ABI from '@/constants/abis/LendingPool.json';
@@ -29,7 +30,9 @@ export const useWalletStore = defineStore('wallet', {
       healthFactor: '0',      // 健康因子（来自LendingPool）
       wbtcBalance: '0',       // 钱包wBTC余额（直接来自WBTCToken）
       stableBalance: '0',     // 钱包稳定币余额（直接来自Stablecoin）
-      maxBorrowable: '0'      // 最大可借额度（来自LendingPool）
+      maxBorrowable: '0',     // 最大可借额度（来自LendingPool）
+      totalCollateralUSD: '0',
+      totalDebtUSD: '0'
     },
     // 市场数据（从PriceOracle直接获取价格）
     marketData: {
@@ -61,7 +64,7 @@ export const useWalletStore = defineStore('wallet', {
         const signer = await provider.getSigner();
         const address = await signer.getAddress();
 
-        // 初始化4个合约实例（直接交互，核心修正）
+        // 初始化4个合约实例
         const contracts = {
           lendingPool: new ethers.Contract(CONTRACT_ADDRESSES.LENDING_POOL, LENDING_POOL_ABI.output.abi, signer),
           wbtc: new ethers.Contract(CONTRACT_ADDRESSES.WBTC, WBTC_ABI.output.abi, signer),
@@ -75,7 +78,6 @@ export const useWalletStore = defineStore('wallet', {
         this.signer = signer;
         this.contracts = contracts;
         this.isConnected = true;
-
         this.setupEventListeners();
 
         // 拉取所有数据
@@ -91,11 +93,38 @@ export const useWalletStore = defineStore('wallet', {
 
     // 监听逻辑
     async setupEventListeners() {
-      if (!window.ethereum) return;
+      if (!window.ethereum || !this.contracts.lendingPool) return;
+      
+      const lendingPool = toRaw(this.contracts.lendingPool);
 
-      // 移除旧的监听防止重复绑定
-      window.ethereum.removeAllListeners('accountsChanged');
-      window.ethereum.removeAllListeners('chainChanged');
+      lendingPool.removeAllListeners('Borrowed');
+      lendingPool.removeAllListeners('Repaid');
+      lendingPool.removeAllListeners('Deposited');
+      lendingPool.removeAllListeners('Withdrawn');
+
+      const handleUpdate = (user) => {
+        if (user.toLowerCase() === this.address.toLowerCase()) {
+          this.refreshAllData();
+        }
+      };
+
+      lendingPool.on('Borrowed', handleUpdate);
+      lendingPool.on('Repaid', handleUpdate);
+      lendingPool.on('Deposited', handleUpdate);
+      lendingPool.on('Withdrawn', handleUpdate);
+
+      //  监听借款事件
+      // lendingPool.on('Borrowed', (user, amount) => {
+      //   if (user.toLowerCase() === this.address.toLowerCase()) {
+      //     this.refreshAllData();
+      //   }
+      // });
+      // // 监听还款事件
+      // lendingPool.on('Repaid', (user, amount) => {
+      //   if (user.toLowerCase() === this.address.toLowerCase()) {
+      //     this.refreshAllData();
+      //   }
+      // });
 
       // 监听账号切换
       window.ethereum.on('accountsChanged', async(accounts) => {
@@ -267,5 +296,140 @@ export const useWalletStore = defineStore('wallet', {
         this.loading = false;
       }
     },
+
+    // 检查Stablecoin授权
+    async checkAllowance(tokenSymbol, amount) {
+      if (!this.isConnected) return false;
+      try {
+        const tokenContract = tokenSymbol === 'WBTC' ? this.contracts.wbtc : this.contracts.stablecoin;
+        const decimals = tokenSymbol === 'WBTC' ? DECIMALS.WBTC : DECIMALS.STABLECOIN;
+        
+        const amountWei = ethers.parseUnits(amount.toString(), decimals);
+        const allowance = await tokenContract.allowance(this.address, CONTRACT_ADDRESSES.LENDING_POOL);
+        
+        return allowance >= amountWei;
+      } catch (error) {
+        console.error('检查授权失败:', error);
+        return false;
+      }
+    },
+
+    // 授权Stablecoin
+    async approveStablecoin(amount) {
+      this.loading = true;
+      try {
+        const { stablecoin } = this.contracts;
+        const amountWei = ethers.parseUnits(amount, DECIMALS.STABLECOIN);
+        const tx = await stablecoin.approve(CONTRACT_ADDRESSES.LENDING_POOL, amountWei);
+        await tx.wait();
+        ElMessage.success('授权成功');
+        return true;
+      } catch (err) {
+        console.error(err);
+        ElMessage.error('授权失败');
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // 借
+    async borrowStable(amount) {
+      this.loading = true;
+      try {
+        const { lendingPool } = this.contracts;
+        const amountWei = ethers.parseUnits(amount, DECIMALS.STABLECOIN);
+        const tx = await lendingPool.borrow(amountWei);
+        await tx.wait();
+        ElMessage.success('借款成功');
+        await this.refreshAllData();
+        return true;
+      } catch (err) {
+        console.error(err);
+        ElMessage.error('借款失败');
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // 还
+    async repayStable(amount) {
+      this.loading = true;
+      try {
+        const { lendingPool } = this.contracts;
+        const amountWei = ethers.parseUnits(amount.toString(), DECIMALS.STABLECOIN);
+        const tx = await lendingPool.repay(amountWei);
+        ElMessage.info('还款交易已提交...');
+        await tx.wait();
+        ElMessage.success('还款成功');
+        await this.refreshAllData();
+        return true;
+      } catch (err) {
+        console.error(err);
+        ElMessage.error('还款失败');
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+    // 新增：授权 WBTC
+    async approveWbtc(amount) {
+      this.loading = true;
+      try {
+        const amountWei = ethers.parseUnits(amount.toString(), DECIMALS.WBTC);
+        const tx = await this.contracts.wbtc.approve(CONTRACT_ADDRESSES.LENDING_POOL, amountWei);
+        ElMessage.info('正在等待授权确认...');
+        await tx.wait();
+        ElMessage.success('WBTC 授权成功');
+        return true;
+      } catch (error) {
+        ElMessage.error('授权失败: ' + error.message);
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // 修改/完善：抵押 WBTC
+    async depositWbtc(amount) {
+      this.loading = true;
+      try {
+        const amountWei = ethers.parseUnits(amount.toString(), DECIMALS.WBTC);
+        // 调用合约的 deposit 方法
+        const tx = await this.contracts.lendingPool.deposit(amountWei);
+        ElMessage.info('正在打包抵押交易...');
+        await tx.wait();
+        ElMessage.success('抵押成功！');
+        await this.refreshAllData();
+        return true;
+      } catch (error) {
+        console.error('抵押失败:', error);
+        ElMessage.error('抵押失败: ' + (error.reason || error.message));
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // 新增：提取 WBTC
+    async withdrawWbtc(amount) {
+      this.loading = true;
+      try {
+        const amountWei = ethers.parseUnits(amount.toString(), DECIMALS.WBTC);
+        // 调用合约的 withdraw 方法
+        const tx = await this.contracts.lendingPool.withdraw(amountWei);
+        ElMessage.info('正在打包提取交易...');
+        await tx.wait();
+        ElMessage.success('提取成功！');
+        await this.refreshAllData();
+        return true;
+      } catch (error) {
+        ElMessage.error('提取失败: ' + (error.reason || error.message));
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    }
   }
 });

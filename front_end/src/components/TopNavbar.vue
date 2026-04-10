@@ -21,8 +21,7 @@
       </el-button>
       <div v-else class="connected-wallet">
         <span class="address">{{ shortAddress }}</span>
-        <el-button 
-          type="text" 
+        <el-button link 
           @click="disconnectWallet"
           style="color: #f56c6c;"
         >
