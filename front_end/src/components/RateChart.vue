@@ -34,30 +34,53 @@ const derivedTotalDebt = ref(0);
 
 const formattedUtilization = computed(() => (currentUtilization.value * 100).toFixed(2));
 
-// ====== 目前是静态参数 ======
-const KINK_POINT = 0.80;   // 假设部署时 i_kinkUtilization 是 0.8e18
-const BASE_RATE = 0.00;    
-const RATE_AT_KINK = 0.04; 
-const MAX_RATE = 0.75;     
+// ==========================================
+// 核心参数转换逻辑（解决 36135% 问题的关键）
+// ==========================================
 
+// 1. 定义时间常数 (以太坊主网一年约 2,628,000 个区块)
+const BLOCKS_PER_YEAR = 2628000; 
+
+// 2. 后端给的原始参数 (精度 1e18)
+const RAW_BASE_RATE = 1e14;   // baseBorrowRatePerBlock
+const RAW_SLOPE1 = 1e15;      // slope1PerBlock
+const RAW_SLOPE2 = 5e15;      // slope2PerBlock
+const RAW_KINK = 0.8e18;      // kinkUtilization
+
+// 3. 转换为前端小数格式 (1e14 变成 0.0001)
+const baseRateDec = RAW_BASE_RATE / 1e18;
+const slope1Dec = RAW_SLOPE1 / 1e18;
+const slope2Dec = RAW_SLOPE2 / 1e18;
+const KINK_POINT = RAW_KINK / 1e18; // 0.8
+
+// 4. 计算年化 APR (小数形式)
+const BASE_APR = baseRateDec * BLOCKS_PER_YEAR; // 0.2628 (即 26.28%)
+// 第一段总增长：当利用率从 0 爬升到 Kink 时增加的年化利率
+const SLOPE1_ANNUAL = slope1Dec * BLOCKS_PER_YEAR; 
+// 第二段总增长：当利用率从 Kink 爬升到 100% 时增加的年化利率
+const SLOPE2_ANNUAL = slope2Dec * BLOCKS_PER_YEAR;
+
+// 生成曲线数据函数
 const generateKinkedCurveData = () => {
   const data = [];
   for (let i = 0; i <= 100; i++) {
-    const u = i / 100; 
+    const u = i / 100;
     let rate;
     if (u <= KINK_POINT) {
-      rate = BASE_RATE + (u / KINK_POINT) * RATE_AT_KINK;
+      // 基础利率 + (当前位移占比 * 第一段年化总幅)
+      rate = BASE_APR + (u / KINK_POINT) * SLOPE1_ANNUAL;
     } else {
+      // 基础利率 + 第一段全额 + (超出部分的占比 * 第二段年化总幅)
       const excessU = u - KINK_POINT;
       const remainingU = 1.0 - KINK_POINT;
-      rate = BASE_RATE + RATE_AT_KINK + (excessU / remainingU) * (MAX_RATE - RATE_AT_KINK);
+      rate = BASE_APR + SLOPE1_ANNUAL + (excessU / remainingU) * SLOPE2_ANNUAL;
     }
+    // 存入 ECharts：[利用率%, 利率%]
     data.push([u * 100, rate * 100]); 
   }
   return data;
 };
 
-// ====== 图表渲染逻辑 ======
 const initChart = () => {
   if (!chartRef.value) return;
   chartInstance = echarts.init(chartRef.value);
@@ -67,36 +90,31 @@ const initChart = () => {
 const renderRateModel = () => {
   const curveData = generateKinkedCurveData();
   const currentU = currentUtilization.value * 100; 
+  const kinkU = KINK_POINT * 100; 
 
   const option = {
     tooltip: {
       trigger: 'axis',
       backgroundColor: '#fff',
       padding: 12,
-      textStyle: { color: '#333' },
-      extraCssText: 'box-shadow: 0 2px 12px 0 rgba(0,0,0,0.1); border-radius: 8px;',
       formatter: function (params) {
-        const uTarget = params[0].value[0] / 100; // X轴当前的百分比
-        const rate = params[0].value[1];          // Y轴的利率
+        const uTarget = params[0].value[0] / 100;
+        const rate = params[0].value[1];
 
         let html = `<div style="font-weight:600; margin-bottom:8px; font-size:14px;">
                       Utilization Rate: <span style="float:right">${(uTarget * 100).toFixed(2)}%</span>
                     </div>`;
 
-        // 如果我们成功推导出了总盘子的大小，就算出达到该点需要的资金量
         if (derivedTotalSupply.value > 0) {
           const targetDebt = uTarget * derivedTotalSupply.value;
           const diff = derivedTotalDebt.value - targetDebt;
-
           if (Math.abs(diff) > 0.01) {
             const action = diff > 0 ? 'Repayment' : 'Borrow';
             const amount = new Intl.NumberFormat('en-US', { 
               style: 'currency', currency: 'USD' 
             }).format(Math.abs(diff));
-
             html += `<div style="font-size:12px; color:#666; margin-bottom:8px; line-height:1.4;">
-                       ${action} amount to reach ${(uTarget * 100).toFixed(0)}% utilization:
-                       <br/><span style="color:#1a1a1a; font-weight:600;">${amount}</span>
+                       ${action} to reach ${(uTarget * 100).toFixed(0)}%: <b>${amount}</b>
                      </div>`;
           }
         }
@@ -111,7 +129,7 @@ const renderRateModel = () => {
     xAxis: {
       type: 'value', min: 0, max: 100,
       axisLabel: { formatter: '{value}%', color: '#999' },
-      axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }
+      splitLine: { show: false }
     },
     yAxis: {
       type: 'value',
@@ -119,20 +137,31 @@ const renderRateModel = () => {
       splitLine: { lineStyle: { type: 'dashed', color: '#eee' } }
     },
     series: [{
-      name: 'Borrow APR', type: 'line', showSymbol: false, data: curveData,
+      name: 'Borrow APR',
+      type: 'line',
+      showSymbol: false,
+      data: curveData,
       lineStyle: { color: '#b6509e', width: 2 },
       markLine: {
         symbol: ['none', 'none'],
-        label: { formatter: `Current\n${currentU.toFixed(2)}%`, position: 'start', color: '#409eff' },
-        lineStyle: { type: 'dashed', color: '#409eff', width: 1.5 },
-        data: [{ xAxis: currentU }]
+        data: [
+          { 
+            xAxis: currentU, 
+            lineStyle: { color: '#409eff', type: 'dashed' }, 
+            label: { formatter: 'Current', position: 'end' } 
+          },
+          { 
+            xAxis: kinkU, 
+            lineStyle: { color: '#ff9900', type: 'dotted' }, 
+            label: { formatter: 'Optimal', position: 'end' } 
+          },
+        ]
       }
     }]
   };
   chartInstance.setOption(option);
 };
 
-// ====== 核心：链上数据读取与逆推 ======
 const fetchOnChainData = async () => {
   if (props.type !== 'rate' || !window.ethereum) return;
   
@@ -140,40 +169,32 @@ const fetchOnChainData = async () => {
     const provider = new BrowserProvider(window.ethereum);
     const contract = new Contract(props.contractAddress, props.abi, provider);
 
-    // 1. 获取当前利用率
     const utilRateRaw = await contract.getUtilizationRate();
-    const uVal = Number(formatUnits(utilRateRaw, 18));
-    currentUtilization.value = uVal;
+    currentUtilization.value = Number(formatUnits(utilRateRaw, 18));
 
-    // 2. 获取稳定币合约地址，并读取池子里的可用流动性
     const stablecoinAddress = await contract.getStablecoinAddress();
-    const erc20Abi = [
-      "function balanceOf(address) view returns (uint256)",
-      "function decimals() view returns (uint8)"
-    ];
+    const erc20Abi = ["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)"];
     const stableContract = new Contract(stablecoinAddress, erc20Abi, provider);
     
-    const balanceRaw = await stableContract.balanceOf(props.contractAddress);
-    const decimals = await stableContract.decimals();
+    const [balanceRaw, decimals] = await Promise.all([
+      stableContract.balanceOf(props.contractAddress),
+      stableContract.decimals()
+    ]);
+    
     const availableLiquidity = Number(formatUnits(balanceRaw, decimals));
+    const uVal = currentUtilization.value;
 
-    // 3. 核心逆推算法
-    if (uVal === 0) {
-      derivedTotalSupply.value = availableLiquidity;
-      derivedTotalDebt.value = 0;
-    } else if (uVal < 1) {
+    if (uVal > 0 && uVal < 1) {
       derivedTotalDebt.value = (uVal * availableLiquidity) / (1 - uVal);
       derivedTotalSupply.value = derivedTotalDebt.value + availableLiquidity;
     } else {
-      // 极端情况：U >= 1 (流动性被借空)
-      derivedTotalDebt.value = 0; // 无法单凭余额推导，前端可做容错处理
-      derivedTotalSupply.value = 0;
+      derivedTotalSupply.value = availableLiquidity;
+      derivedTotalDebt.value = 0;
     }
     
     renderRateModel();
   } catch (error) {
-    console.error("Failed to fetch data:", error);
-    currentUtilization.value = props.baseValue / 100 || 0;
+    console.error("Fetch error:", error);
     renderRateModel();
   }
 };
@@ -190,11 +211,11 @@ watch(() => props.baseValue, () => {
 </script>
 
 <style scoped>
-.rate-chart-container { width: 100%; padding: 16px; background: #fff; border-radius: 8px; }
-.chart-title { font-size: 14px; color: #333; margin-bottom: 8px; font-weight: 600; }
+.rate-chart-container { width: 100%; padding: 16px; background: #fff; border-radius: 8px; border: 1px solid #f0f0f0; }
+.chart-title { font-size: 14px; color: #333; margin-bottom: 12px; font-weight: 600; }
 .chart-stats { display: flex; margin-bottom: 16px; }
 .stat-item { display: flex; flex-direction: column; }
-.stat-label { font-size: 12px; color: #666; }
+.stat-label { font-size: 12px; color: #666; margin-bottom: 4px; }
 .stat-value { font-size: 20px; font-weight: bold; color: #1a1a1a; }
-.echarts-box { width: 100%; height: 300px; }
+.echarts-box { width: 100%; height: 320px; }
 </style>

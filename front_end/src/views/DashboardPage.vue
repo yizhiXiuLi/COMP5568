@@ -95,15 +95,8 @@
               type="rate" 
               title="借款年利率（APY）趋势"
               :base-value="Number(marketData.borrowAPY)"
-              :contract-address="walletStore.lendingPoolAddress" 
+              :contract-address="CONTRACT_ADDRESSES.LENDING_POOL" 
               :abi="LendingPoolABI"
-            />
-            <RateChart 
-              type="price" 
-              title="wBTC价格波动"
-              :base-value="Number(marketData.wbtcPrice)"
-              :contract-address="walletStore.wbtcAddress" 
-              :abi="WBTCABI"
             />
           </div>
         </el-card>
@@ -118,6 +111,10 @@ import { useWalletStore } from '@/stores/walletStore';
 import Navbar from '@/components/TopNavbar.vue';
 import HealthFactor from '@/components/HealthFactor.vue';
 import RateChart from '@/components/RateChart.vue';
+import { CONTRACT_ADDRESSES } from '@/constants/addresses';
+import LendingPoolArtifact from '@/constants/abis/LendingPool.json';
+
+const LendingPoolABI = LendingPoolArtifact.output.abi;
 
 const walletStore = useWalletStore();
 

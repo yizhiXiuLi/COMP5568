@@ -234,9 +234,10 @@ export const useWalletStore = defineStore('wallet', {
         borrowRatePerBlock: fromWei(borrowRatePerBlock),
         borrowAPY
       };
+      
     },
 
-    // 触发PriceOracle的价格波动（新增：交互预言机）
+    // 触发PriceOracle的价格波动（交互预言机）
     async triggerPriceUpdate() {
       if (!this.isConnected) return;
       this.loading = true;
