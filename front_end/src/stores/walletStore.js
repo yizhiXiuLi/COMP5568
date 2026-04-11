@@ -246,6 +246,7 @@ export const useWalletStore = defineStore('wallet', {
       const wbtcPriceRaw = await priceOracle.getWbtcPrice();
       // 获取价格最后更新时间（考虑删除）
       // const lastUpdated = await priceOracle.getLastUpdated();
+      // console.log(">>> [DEBUG] Oracle Raw Data:", wbtcPriceRaw.toString());
 
       this.marketData = {
         ...this.marketData,
@@ -303,9 +304,11 @@ export const useWalletStore = defineStore('wallet', {
 
     // 检查Stablecoin授权
     async checkAllowance(tokenSymbol, amount) {
-      if (!this.isConnected) return false;
-      try {
+      if (!this.isConnected || !this.address || !this.contracts.lendingPool) return false;
+      if (!amount || isNaN(parseFloat(amount))) return false;
+      try { 
         const tokenContract = tokenSymbol === 'WBTC' ? this.contracts.wbtc : this.contracts.stablecoin;
+        if (!tokenContract) return false;
         const decimals = tokenSymbol === 'WBTC' ? DECIMALS.WBTC : DECIMALS.STABLECOIN;
         
         const amountWei = ethers.parseUnits(amount.toString(), decimals);

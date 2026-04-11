@@ -206,7 +206,7 @@ onMounted(() => {
   if (walletStore.isConnected) {
     walletStore.refreshAllData();
   }
-  // window.testStore = walletStore;
+  window.testStore = walletStore;
 });
 </script>
 

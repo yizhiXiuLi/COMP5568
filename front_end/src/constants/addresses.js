@@ -7,7 +7,7 @@ export const CONTRACT_ADDRESSES = {
 
 // 精度配置
 export const DECIMALS = {
-  WBTC: 8,
+  WBTC: 18,
   STABLECOIN: 18
 };
 

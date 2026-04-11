@@ -77,7 +77,13 @@
               </el-button>
             </el-form-item>
           </el-form>
-          <el-button text @click="router.push('/')">返回首页</el-button>
+          <el-button 
+            type="text" 
+            @click="$router.push('/')"
+            style="margin-top: 24px;"
+          >
+            返回首页
+          </el-button>
         </el-card>
       </div>
     </div>
@@ -89,11 +95,9 @@ import { useWalletStore } from '@/stores/walletStore';
 import Navbar from '@/components/TopNavbar.vue';
 import HealthFactor from '@/components/HealthFactor.vue';
 import { computed, ref, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import { isHfSafe, estimateHealthFactor } from '@/utils/validators';
 import { COLLATERAL_FACTOR } from '@/constants/addresses';
 
-const router = useRouter();
 const walletStore = useWalletStore();
 
 const isConnected = computed(() => walletStore.isConnected);
@@ -105,6 +109,14 @@ const borrowAmount = ref('');
 const repayAmount = ref('');
 const repayButtonText = ref('还款稳定币');
 const estimatedHf = ref(accountData.value.healthFactor);
+
+watch(() => accountData.value.healthFactor, (newVal) => {
+  // 逻辑：如果用户还没开始输入借款金额，说明还在初始化阶段
+  // 此时我们需要让“预估健康因子”等于“当前实际健康因子”
+  if (!borrowAmount.value || borrowAmount.value === '') {
+    estimatedHf.value = newVal;
+  }
+}, { immediate: true }); // immediate 确保刷新页面链接钱包后立即执行一次
 
 const calculateEstimatedHf = () => {
   // 直接使用 store 中已经由合约算好的 USD 价值，避免前端计算价格偏差
@@ -143,8 +155,11 @@ const borrowStable = async () => {
 };
 
 const checkApproval = async () => {
-  if (!repayAmount.value) return;
-  const ok = await walletStore.checkStableAllowance(repayAmount.value);
+  if (!repayAmount.value || repayAmount.value === '') {
+    repayButtonText.value = '还款稳定币';
+    return;
+  }
+  const ok = await walletStore.checkAllowance(repayAmount.value);
   repayButtonText.value = ok ? '还款稳定币' : '授权稳定币';
 };
 
