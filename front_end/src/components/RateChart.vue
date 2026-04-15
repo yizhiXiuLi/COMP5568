@@ -47,11 +47,12 @@ const RAW_SLOPE1 = 1e15;      // slope1PerBlock
 const RAW_SLOPE2 = 5e15;      // slope2PerBlock
 const RAW_KINK = 0.8e18;      // kinkUtilization
 
-// 3. 转换为前端小数格式 (1e14 变成 0.0001)
-const baseRateDec = RAW_BASE_RATE / 1e18;
-const slope1Dec = RAW_SLOPE1 / 1e18;
-const slope2Dec = RAW_SLOPE2 / 1e18;
-const KINK_POINT = RAW_KINK / 1e18; // 0.8
+// 3. 转换为前端小数格式 (强行除以 10000 修正后端的数学错误)
+const FIX_FACTOR = 10000;
+const baseRateDec = (RAW_BASE_RATE / FIX_FACTOR) / 1e18;
+const slope1Dec = (RAW_SLOPE1 / FIX_FACTOR) / 1e18;
+const slope2Dec = (RAW_SLOPE2 / FIX_FACTOR) / 1e18;
+const KINK_POINT = RAW_KINK / 1e18; // Kink 0.8 是对的，不需要除
 
 // 4. 计算年化 APR (小数形式)
 const BASE_APR = baseRateDec * BLOCKS_PER_YEAR; // 0.2628 (即 26.28%)

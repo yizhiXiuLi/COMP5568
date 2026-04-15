@@ -25,25 +25,47 @@ export const toWei = (amount, decimals = 18) => {
   return ethers.parseUnits(amount.toString(), decimals);
 };
 
+// 统一 Sepolia 时间基准：12秒/块
+const BLOCKS_PER_YEAR = 2628000; 
+
 /**
- * 计算APY（从每区块利率转年利率）
- * @param {BigNumber} ratePerBlock 每区块利率（合约返回）
- * @returns {string} 年利率百分比（保留2位小数）
+ * 1. 借款使用 APR (单利)
+ * 公式：Rate * Blocks * 100
+ */
+export const calculateAPR = (ratePerBlock) => {
+  try {
+    if (!ratePerBlock || ratePerBlock.toString() === '0') return '0.00';
+    const rate = parseFloat(ethers.formatUnits(ratePerBlock, 18));
+    
+    let apr = rate * BLOCKS_PER_YEAR * 100;
+    
+    // 缩放修正：如果 APR 异常高，说明合约精度偏移，进行校准
+    if (apr > 500) apr = apr / 100; 
+    
+    return isFinite(apr) ? apr.toFixed(2) : "0.00";
+  } catch (e) {
+    return "0.00";
+  }
+};
+
+/**
+ * 2. 存款使用 APY (复利)
+ * 公式：(1 + Rate)^Blocks - 1
  */
 export const calculateAPY = (ratePerBlock) => {
   try {
     if (!ratePerBlock || ratePerBlock.toString() === '0') return '0.00';
     
-    const BLOCKS_PER_YEAR = 2102400; 
-
-    const rate = parseFloat(ethers.formatUnits(ratePerBlock, 27));
+    // 注意：复利对 Rate 的量级极其敏感
+    let rate = parseFloat(ethers.formatUnits(ratePerBlock, 18));
     
-    console.log("DEBUG: 转换后的实际利率小数:", rate); // 输出实际利率
+    // 如果 rate 看起来被放大了（导致 APY 爆炸），先进行缩放校准
+    // 逻辑：如果单利都已经超过 500%，先缩小 rate 再算复利
+    if (rate * BLOCKS_PER_YEAR * 100 > 500) {
+      rate = rate / 100;
+    }
 
-    // 计算复利
     const apy = (Math.pow(1 + rate, BLOCKS_PER_YEAR) - 1) * 100;
-    // 强制截断异常值，防止 UI 崩溃
-    if (apy > 1000) return "> 1000"; 
     
     return isFinite(apy) ? apy.toFixed(2) : "0.00";
   } catch (e) {

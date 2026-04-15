@@ -7,7 +7,7 @@ import LENDING_POOL_ABI from '@/constants/abis/LendingPool.json';
 import WBTC_ABI from '@/constants/abis/WBTCToken.json';
 import STABLECOIN_ABI from '@/constants/abis/Stablecoin.json';
 import PRICE_ORACLE_ABI from '@/constants/abis/PriceOracle.json';
-import { fromWei, calculateAPY } from '@/utils/format';
+import { fromWei, calculateAPY, calculateAPR } from '@/utils/format';
 
 export const useWalletStore = defineStore('wallet', {
   state: () => ({
@@ -244,9 +244,6 @@ export const useWalletStore = defineStore('wallet', {
       const { priceOracle } = this.contracts;
       // 直接调用PriceOracle的getWbtcPrice
       const wbtcPriceRaw = await priceOracle.getWbtcPrice();
-      // 获取价格最后更新时间（考虑删除）
-      // const lastUpdated = await priceOracle.getLastUpdated();
-      // console.log(">>> [DEBUG] Oracle Raw Data:", wbtcPriceRaw.toString());
 
       this.marketData = {
         ...this.marketData,
@@ -262,11 +259,11 @@ export const useWalletStore = defineStore('wallet', {
       const { lendingPool } = this.contracts;
       // 1. 获取借款利率（原有逻辑）
       const borrowRatePerBlock = await lendingPool.getBorrowRatePerBlock();
-      const borrowAPY = calculateAPY(borrowRatePerBlock);
+      const borrowAPY = calculateAPR(borrowRatePerBlock);
 
       // 2. 获取存款利率（每区块）并计算supplyAPY
       const supplyRatePerBlock = await lendingPool.getSupplyRatePerBlock();
-      const supplyAPY = calculateAPY(supplyRatePerBlock); // 复用calculateAPY方法
+      const supplyAPY = calculateAPY(supplyRatePerBlock); 
 
       // 3. 获取资金利用率（原始值）
       const utilizationRateRaw = await lendingPool.getUtilizationRate();
@@ -275,9 +272,9 @@ export const useWalletStore = defineStore('wallet', {
 
       this.marketData = {
         ...this.marketData,
-        borrowRatePerBlock: fromWei(borrowRatePerBlock),
-        borrowAPY,
-        supplyAPY: supplyAPY, // 赋值存款APY
+        borrowRatePerBlock: borrowRatePerBlock,
+        borrowAPY: (borrowAPY/100).toFixed(2),
+        supplyAPY: supplyAPY, 
         utilizationRate: utilizationRate // 赋值资金利用率（百分比）
       };
     },
