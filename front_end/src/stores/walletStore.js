@@ -95,11 +95,13 @@ export const useWalletStore = defineStore('wallet', {
       if (!window.ethereum || !this.contracts.lendingPool) return;
       
       const lendingPool = toRaw(this.contracts.lendingPool);
+      const priceOracle = toRaw(this.contracts.priceOracle);
 
       lendingPool.removeAllListeners('Borrowed');
       lendingPool.removeAllListeners('Repaid');
       lendingPool.removeAllListeners('Deposited');
       lendingPool.removeAllListeners('Withdrawn');
+      priceOracle.removeAllListeners('PriceUpdated');
 
       const handleUpdate = (user) => {
         if (user.toLowerCase() === this.address.toLowerCase()) {
@@ -111,6 +113,9 @@ export const useWalletStore = defineStore('wallet', {
       lendingPool.on('Repaid', handleUpdate);
       lendingPool.on('Deposited', handleUpdate);
       lendingPool.on('Withdrawn', handleUpdate);
+      priceOracle.on('PriceUpdated', () => {
+        this.refreshAllData();
+      });
 
       // 监听账号切换
       window.ethereum.on('accountsChanged', async(accounts) => {
@@ -198,17 +203,27 @@ export const useWalletStore = defineStore('wallet', {
       const { lendingPool } = this.contracts;
       // 账户抵押/债务
       const [collateralWbtc, debtStable] = await lendingPool.getUserAccount(this.address);
-      // 健康因子
-      const healthFactorRaw = await lendingPool.getHealthFactor(this.address);
       // 最大可借额度
       const maxBorrowable = await lendingPool.getMaxBorrowable(this.address);
 
       // 获取折算成 USD 的价值（规范 4.2 节）
       const collateralValue = await lendingPool.getCollateralValue(this.address);
       const debtValue = await lendingPool.getDebtValue(this.address);
+      const liquidationThresholdRaw = await lendingPool.getLiquidationThreshold();
+
+      // 健康因子直接用本次刷新拿到的抵押/债务数据重新计算，避免旧视图值滞后
+      const collateralUsd = parseFloat(fromWei(collateralValue, 18));
+      const debtUsd = parseFloat(fromWei(debtValue, 18));
+      const liquidationThreshold = parseFloat(fromWei(liquidationThresholdRaw, 18)) || 0;
+
+      let hf = '0';
+      if (debtUsd <= 0) {
+        hf = '∞';
+      } else if (collateralUsd > 0 && liquidationThreshold > 0) {
+        hf = ((collateralUsd * liquidationThreshold) / debtUsd).toFixed(4);
+      }
 
       // 处理健康因子：如果数值过大，视为无穷大
-      let hf = fromWei(healthFactorRaw, 18);
       if (parseFloat(hf) > 1000000) hf = "∞";
 
       this.accountData = {
@@ -393,6 +408,38 @@ export const useWalletStore = defineStore('wallet', {
         return true;
       } catch (error) {
         ElMessage.error('wBTC Withdrawal Failed');
+        return false;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async getHealthFactorByAddress(userAddress) {
+      if (!this.contracts.lendingPool) return '0';
+      try {
+        const hfRaw = await this.contracts.lendingPool.getHealthFactor(userAddress);
+        let hf = fromWei(hfRaw, 18);
+        if (parseFloat(hf) > 1000000) hf = '∞';
+        return hf;
+      } catch (error) {
+        console.error('Failed to fetch target health factor:', error);
+        return '0';
+      }
+    },
+
+    async liquidatePosition(userAddress, repayAmount) {
+      this.loading = true;
+      try {
+        const amountWei = ethers.parseUnits(repayAmount.toString(), DECIMALS.STABLECOIN);
+        const tx = await this.contracts.lendingPool.liquidate(userAddress, amountWei);
+        ElMessage.info('Processing liquidation transaction...');
+        await tx.wait();
+        ElMessage.success('Liquidation Successful');
+        await this.refreshAllData();
+        return true;
+      } catch (error) {
+        console.error('Liquidation failed:', error);
+        ElMessage.error('Liquidation Failed');
         return false;
       } finally {
         this.loading = false;

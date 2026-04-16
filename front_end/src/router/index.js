@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Dashboard from '@/views/DashboardPage.vue';
 import Supply from '@/views/SupplyPage.vue';
 import Borrow from '@/views/BorrowPage.vue';
+import Liquidation from '@/views/LiquidationPage.vue';
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -20,6 +21,11 @@ const router = createRouter({
       path: '/borrow',
       name: 'Borrow',
       component: Borrow
+    },
+    {
+      path: '/liquidation',
+      name: 'Liquidation',
+      component: Liquidation
     },
     // 404重定向
     {
