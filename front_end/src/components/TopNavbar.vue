@@ -1,13 +1,13 @@
 <template>
   <nav class="navbar">
     <div class="navbar-left">
-      <h1 class="logo">DeFi借贷平台</h1>
+      <h1 class="logo">Decentralized Lending & Borrowing Platform</h1>
     </div>
     <div class="navbar-middle">
       <div v-if="isConnected" class="balance-info">
         <span>wBTC: {{ accountData.wbtcBalance }}</span>
         <span class="divider">|</span>
-        <span>稳定币: {{ accountData.stableBalance }}</span>
+        <span>cUSD: {{ accountData.stableBalance }}</span>
       </div>
     </div>
     <div class="navbar-right">
@@ -17,7 +17,7 @@
         @click="connectWallet"
         :loading="loading"
       >
-        连接MetaMask
+        Connect Wallet
       </el-button>
       <div v-else class="connected-wallet">
         <span class="address">{{ shortAddress }}</span>
@@ -25,7 +25,7 @@
           @click="disconnectWallet"
           style="color: #f56c6c;"
         >
-          断开
+          Disconnect
         </el-button>
       </div>
     </div>

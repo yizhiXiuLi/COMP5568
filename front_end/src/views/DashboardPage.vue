@@ -3,97 +3,84 @@
     <Navbar />
     <div class="dashboard-content">
       <div v-if="!isConnected" class="no-connect">
-        <el-empty description="请先连接MetaMask钱包以查看账户数据" />
+        <el-empty description="Please connect wallet to view account data" />
       </div>
 
       <div v-else class="data-container">
         <el-card class="data-card" v-loading="loading">
           <template #header>
             <div class="card-header">
-              <span>账户核心数据</span>
+              <span>Account Core Data</span>
               <el-button 
                 type="primary" 
                 link
                 @click="refreshData"
                 :loading="loading"
               >
-                刷新
+                Refresh
               </el-button>
             </div>
           </template>
 
           <div class="data-grid">
             <div class="data-item">
-              <div class="item-label">已抵押wBTC</div>
+              <div class="item-label">Collateral wBTC</div>
               <div class="item-value">{{ accountData.collateralWbtc }}</div>
-              <div class="item-sub">约 ${{ accountData.totalCollateralUSD }}</div>
+              <div class="item-sub">about {{ accountData.totalCollateralUSD }} cUSD</div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">稳定币债务</div>
+              <div class="item-label">cUSD Debt</div>
               <div class="item-value">{{ accountData.debtStable }}</div>
-              <div class="item-sub">实时债务: ${{ accountData.totalDebtUSD }}</div>
+              <div class="item-sub">Total Debt: ${{ accountData.totalDebtUSD }}</div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">最大可借额度</div>
+              <div class="item-label">Max Borrow Limit</div>
               <div class="item-value" style="color: #67c23a;">{{ accountData.maxBorrowable }}</div>
-              <div class="item-sub">单位: Stablecoin</div>
+              <div class="item-sub">Unit: cUSD</div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">wBTC价格（稳定币）</div>
+              <div class="item-label">wBTC Price (cUSD)</div>
               <div class="item-value" style="color: #409eff;">
                 {{ marketData.wbtcPrice }}
-                <el-button 
-                  type="primary" 
-                  link
-                  size="small" 
-                  @click="triggerPriceUpdate"
-                  :loading="loading"
-                  style="margin-left: 8px;"
-                >
-                  刷新价格
-                </el-button>
               </div>
               <div class="item-sub">
-                最后更新：{{ formatTime(marketData.lastPriceUpdate) }}
+                Last Update: {{ formatTime(marketData.lastPriceUpdate) }}
               </div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">借款年利率(APY)</div>
-              <div class="item-value">{{ marketData.borrowAPY }}%</div>
-              <div class="item-sub">基于区块奖励计算</div>
+              <div class="item-label">Borrow APR</div>
+              <div class="item-value">{{ marketData.borrowAPR }}%</div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">存款年利率(APY)</div>
+              <div class="item-label">Supply APY</div>
               <div class="item-value" style="color: #00b42a;">{{ marketData.supplyAPY }}%</div>
-              <div class="item-sub">提供流动性收益</div>
             </div>
 
             <div class="data-item">
-              <div class="item-label">平台资金利用率</div>
+              <div class="item-label">Protocol Utilization Rate</div>
               <div class="item-value" style="color: #ff7d00;">{{ marketData.utilizationRate }}%</div>
-              <div class="item-sub">总借款/总供给</div>
             </div>
             <div class="data-item">
-              <div class="item-label">当前最大抵押率 (LTV)</div>
+              <div class="item-label">Current Max LTV</div>
               <div class="item-value">
                 {{ (parseFloat(marketData.collateralFactor) * 100).toFixed(0) }}%
               </div>
               <div class="item-sub">
-                清算风险阈值: {{ (parseFloat(marketData.liquidationThreshold) * 100).toFixed(0) }}%
+                Liquidation Threshold: {{ (parseFloat(marketData.liquidationThreshold) * 100).toFixed(0) }}%
               </div>
             </div>
             <div class="data-item">
-              <div class="item-label" style="color: #f56c6c; font-weight: bold;">预估清算价格</div>
+              <div class="item-label" style="color: #f56c6c; font-weight: bold;">Estimated Liquidation Price (cUSD)</div>
               <div class="item-value" style="color: #f56c6c;">
-                ${{ liquidationPrice }}
+                {{ liquidationPrice }}
               </div>
               <div class="item-sub">
-                wBTC 跌至此价将触发清算
+                Liquidation triggered if wBTC drops to this price
               </div>
             </div>
           </div>
@@ -105,26 +92,26 @@
               type="primary" 
               @click="$router.push('/supply')"
             >
-              抵押/提取wBTC
+              Deposit / Withdraw wBTC
             </el-button>
             <el-button 
               type="success" 
               @click="$router.push('/borrow')"
             >
-              借款/还款稳定币
+              Borrow / Repay cUSD
             </el-button>
           </div>
         </el-card>
 
         <el-card class="chart-card">
           <template #header>
-            <span>市场趋势</span>
+            <span>Interest rate model</span>
           </template>
           <div class="chart-grid">
             <RateChart 
               type="rate" 
-              title="借款年利率（APY）趋势"
-              :base-value="Number(marketData.borrowAPY)"
+              title="Borrow APR Trend"
+              :base-value="Number(marketData.borrowAPR)"
               :contract-address="CONTRACT_ADDRESSES.LENDING_POOL" 
               :abi="LendingPoolABI"
             />
@@ -148,7 +135,6 @@ const LendingPoolABI = LendingPoolArtifact.output.abi;
 
 const walletStore = useWalletStore();
 
-// 状态映射
 const isConnected = computed(() => walletStore.isConnected);
 const loading = computed(() => walletStore.loading);
 const accountData = computed(() => walletStore.accountData);
@@ -161,36 +147,24 @@ const liquidationPrice = computed(() => {
   const threshold = parseFloat(marketData.value.liquidationThreshold) || 0.8;
 
   if (!collateral || collateral <= 0 || !debtUSD || debtUSD <= 0) {
-    return "无清算风险"; 
+    return "No Liquidation Risk"; 
   }
 
   // 计算公式：清算价格 = 债务 / (抵押数量 * 清算阈值)
   const price = debtUSD / (collateral * threshold);
   
   return price.toLocaleString(undefined, { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
+    minimumFractionDigits: 4, 
+    maximumFractionDigits: 4 
   });
 });
 
-// 刷新数据
 const refreshData = () => {
   walletStore.refreshAllData();
 };
 
-/**
- * 触发价格波动
- * 逻辑：调用合约 updatePrice() -> 等待 tx 完成 -> store 自动 refreshPriceFromOracle
- */
-const triggerPriceUpdate = async () => {
-  await walletStore.triggerPriceUpdate();
-  // 价格变动后，健康因子同步更新
-  await walletStore.refreshAccountDataFromLendingPool();
-};
-
-// 格式化价格更新时间
 const formatTime = (timestamp) => {
-  if (!timestamp || timestamp === 0) return '尚未更新';
+  if (!timestamp || timestamp === 0) return 'Not Updated';
   const d = new Date(timestamp);
   const Y = d.getFullYear();
   const M = (d.getMonth() + 1).toString().padStart(2, '0');
@@ -201,7 +175,6 @@ const formatTime = (timestamp) => {
   return `${Y}-${M}-${D} ${h}:${m}:${s}`;
 };
 
-// 页面加载逻辑
 onMounted(() => {
   if (walletStore.isConnected) {
     walletStore.refreshAllData();

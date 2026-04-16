@@ -3,34 +3,34 @@
     <Navbar />
     <div class="supply-content">
       <div v-if="!isConnected" class="no-connect">
-        <el-empty description="请先连接钱包以进行操作" />
+        <el-empty description="Please connect your wallet first" />
       </div>
 
       <div v-else class="operation-container">
         <el-card class="operation-card">
           <template #header>
-            <span>抵押/提取 wBTC</span>
+            <span>Deposit / Withdraw wBTC</span>
           </template>
 
           <!-- 余额信息 -->
           <div class="balance-info">
             <div class="balance-item">
-              <span>钱包 wBTC 余额：</span>
+              <span>Wallet wBTC Balance: </span>
               <strong>{{ accountData.wbtcBalance }}</strong>
             </div>
             <div class="balance-item">
-              <span>已抵押 wBTC：</span>
+              <span>Collateral wBTC: </span>
               <strong>{{ accountData.collateralWbtc }}</strong>
             </div>
           </div>
 
           <!-- 抵押操作 -->
-          <el-divider content-position="left">抵押 wBTC</el-divider>
+          <el-divider content-position="left">Deposit wBTC</el-divider>
           <el-form label-width="100px" class="operation-form">
-            <el-form-item label="抵押数量">
+            <el-form-item label="Deposit Amount">
               <el-input
                 v-model="depositAmount"
-                placeholder="请输入 wBTC 数量"
+                placeholder="Enter wBTC amount"
                 type="number"
                 step="0.0001"
                 min="0"
@@ -49,12 +49,12 @@
           </el-form>
 
           <!-- 提取操作 -->
-          <el-divider content-position="left">提取 wBTC</el-divider>
+          <el-divider content-position="left">Withdraw wBTC</el-divider>
           <el-form label-width="100px" class="operation-form">
-            <el-form-item label="提取数量">
+            <el-form-item label="Withdraw Amount">
               <el-input
                 v-model="withdrawAmount"
-                placeholder="请输入 wBTC 数量"
+                placeholder="Enter wBTC amount"
                 type="number"
                 step="0.0001"
                 min="0"
@@ -67,7 +67,7 @@
                 :loading="loading"
                 :disabled="!withdrawAmount || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > Number(accountData.collateralWbtc)"
               >
-                提取 wBTC
+                Withdraw wBTC
               </el-button>
             </el-form-item>
           </el-form>
@@ -78,7 +78,7 @@
             @click="$router.push('/')"
             style="margin-top: 24px;"
           >
-            返回首页
+            Back to Dashboard
           </el-button>
         </el-card>
       </div>
@@ -99,12 +99,12 @@ const accountData = computed(() => walletStore.accountData);
 // 操作金额
 const depositAmount = ref('');
 const withdrawAmount = ref('');
-const isWbtcApproved = ref(true); // 初始假设已授权，由 watch 更新
+const isWbtcApproved = ref(true);
 
 // 抵押按钮文案（根据授权状态动态变化）
 const depositButtonText = computed(() => {
-  if (loading.value) return '处理中...';
-  return isWbtcApproved.value ? '立即抵押 wBTC' : '第一步：授权 wBTC';
+  if (loading.value) return 'Processing...';
+  return isWbtcApproved.value ? 'Deposit wBTC' : 'Approve wBTC';
 });
 
 // 检查 wBTC 授权状态

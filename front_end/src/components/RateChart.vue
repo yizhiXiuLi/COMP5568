@@ -34,10 +34,6 @@ const derivedTotalDebt = ref(0);
 
 const formattedUtilization = computed(() => (currentUtilization.value * 100).toFixed(2));
 
-// ==========================================
-// 核心参数转换逻辑（解决 36135% 问题的关键）
-// ==========================================
-
 // 1. 定义时间常数 (以太坊主网一年约 2,628,000 个区块)
 const BLOCKS_PER_YEAR = 2628000; 
 
@@ -52,10 +48,10 @@ const FIX_FACTOR = 10000;
 const baseRateDec = (RAW_BASE_RATE / FIX_FACTOR) / 1e18;
 const slope1Dec = (RAW_SLOPE1 / FIX_FACTOR) / 1e18;
 const slope2Dec = (RAW_SLOPE2 / FIX_FACTOR) / 1e18;
-const KINK_POINT = RAW_KINK / 1e18; // Kink 0.8 是对的，不需要除
+const KINK_POINT = RAW_KINK / 1e18; 
 
 // 4. 计算年化 APR (小数形式)
-const BASE_APR = baseRateDec * BLOCKS_PER_YEAR; // 0.2628 (即 26.28%)
+const BASE_APR = baseRateDec * BLOCKS_PER_YEAR; 
 // 第一段总增长：当利用率从 0 爬升到 Kink 时增加的年化利率
 const SLOPE1_ANNUAL = slope1Dec * BLOCKS_PER_YEAR; 
 // 第二段总增长：当利用率从 Kink 爬升到 100% 时增加的年化利率
@@ -76,7 +72,6 @@ const generateKinkedCurveData = () => {
       const remainingU = 1.0 - KINK_POINT;
       rate = BASE_APR + SLOPE1_ANNUAL + (excessU / remainingU) * SLOPE2_ANNUAL;
     }
-    // 存入 ECharts：[利用率%, 利率%]
     data.push([u * 100, rate * 100]); 
   }
   return data;

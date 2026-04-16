@@ -1,7 +1,7 @@
 <template>
   <div class="health-factor-container">
     <div class="hf-header">
-      <span class="label">健康因子 (Health Factor)</span>
+      <span class="label">Health Factor</span>
       <span class="value" :class="hfClass">{{ displayHf }}</span>
     </div>
 
@@ -15,10 +15,10 @@
 
     <div class="hf-footer">
       <div v-if="displayHf !== '∞' && Number(displayHf) < 1.1" class="warning-text">
-        <el-icon><WarningFilled /></el-icon> 资产面临清算风险！
+        <el-icon><WarningFilled /></el-icon> Assets at risk of liquidation!
       </div>
       <div v-else-if="estimatedHf" class="preview-text">
-        (操作后预估)
+        (Estimated after operation)
       </div>
     </div>
   </div>
@@ -33,7 +33,7 @@ const props = defineProps({
     type: String,
     required: true
   },
-  // 借款/还款时传入的实时计算值
+  // borrow/supply 时传入的实时计算值
   estimatedHf: {
     type: [String, Number],
     default: null
@@ -57,7 +57,7 @@ const hfPercentage = computed(() => {
   return Math.min(Math.max(percentage, 5), 100); // 最小给5%展示度
 });
 
-// 动态样式类
+
 const hfClass = computed(() => {
   if (displayHf.value === '∞') return 'text-success';
   const val = parseFloat(displayHf.value);
@@ -66,7 +66,6 @@ const hfClass = computed(() => {
   return 'text-danger';
 });
 
-// 动态颜色
 const hfColor = computed(() => {
   if (displayHf.value === '∞') return '#67C23A';
   const val = parseFloat(displayHf.value);
