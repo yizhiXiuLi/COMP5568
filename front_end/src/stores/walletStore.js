@@ -259,7 +259,7 @@ export const useWalletStore = defineStore('wallet', {
         ...this.marketData,
         borrowRatePerBlock: borrowRatePerBlock,
         borrowAPR: (borrowAPR/100).toFixed(2),
-        supplyAPY: supplyAPY, 
+        supplyAPY: (supplyAPY/100).toFixed(2), 
         utilizationRate: utilizationRate 
       };
     },

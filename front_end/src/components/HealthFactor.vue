@@ -14,7 +14,7 @@
     />
 
     <div class="hf-footer">
-      <div v-if="displayHf !== '∞' && Number(displayHf) < 1.1" class="warning-text">
+      <div v-if="displayHf !== '∞' && Number(displayHf) < 1.0" class="warning-text">
         <el-icon><WarningFilled /></el-icon> Assets at risk of liquidation!
       </div>
       <div v-else-if="estimatedHf" class="preview-text">
@@ -46,7 +46,7 @@ const displayHf = computed(() => {
   return props.healthFactor;
 });
 
-// 计算进度条百分比 (以 1.1 为清算线，3.0 为安全线上限)
+// 计算进度条百分比 (以 1.0 为清算线，3.0 为安全线上限)
 const hfPercentage = computed(() => {
   if (displayHf.value === '∞') return 100;
   const val = parseFloat(displayHf.value);
@@ -62,7 +62,7 @@ const hfClass = computed(() => {
   if (displayHf.value === '∞') return 'text-success';
   const val = parseFloat(displayHf.value);
   if (val >= 1.5) return 'text-success';
-  if (val >= 1.1) return 'text-warning';
+  if (val >= 1.0) return 'text-warning';
   return 'text-danger';
 });
 
@@ -70,7 +70,7 @@ const hfColor = computed(() => {
   if (displayHf.value === '∞') return '#67C23A';
   const val = parseFloat(displayHf.value);
   if (val >= 1.5) return '#67C23A'; // 绿色
-  if (val >= 1.1) return '#E6A23C'; // 橙色
+  if (val >= 1.0) return '#E6A23C'; // 橙色
   return '#F56C6C'; // 红色
 });
 </script>

@@ -55,18 +55,18 @@ export const calculateAPR = (ratePerBlock) => {
 export const calculateAPY = (ratePerBlock) => {
   try {
     if (!ratePerBlock || ratePerBlock.toString() === '0') return '0.00';
-    
-    // 注意：复利对 Rate 的量级极其敏感
-    let rate = parseFloat(ethers.formatUnits(ratePerBlock, 18));
-    
-    // 如果 rate 看起来被放大了（导致 APY 爆炸），先进行缩放校准
-    // 逻辑：如果单利都已经超过 500%，先缩小 rate 再算复利
-    if (rate * BLOCKS_PER_YEAR * 100 > 500) {
-      rate = rate / 100;
-    }
 
+    // 👇 强制统一缩放：不管合约是啥，都除以 1e18
+    let rate = parseFloat(ethers.formatUnits(ratePerBlock, 18));
+
+    // ==============================================
+    // 👇 核心修复：supply rate 默认多了 100 倍，必须缩小
+    // ==============================================
+    rate = rate / 100;
+
+    // 复利计算
     const apy = (Math.pow(1 + rate, BLOCKS_PER_YEAR) - 1) * 100;
-    
+
     return isFinite(apy) ? apy.toFixed(2) : "0.00";
   } catch (e) {
     return "0.00";
