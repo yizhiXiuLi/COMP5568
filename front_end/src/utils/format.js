@@ -56,12 +56,7 @@ export const calculateAPY = (ratePerBlock) => {
   try {
     if (!ratePerBlock || ratePerBlock.toString() === '0') return '0.00';
 
-    // 👇 强制统一缩放：不管合约是啥，都除以 1e18
     let rate = parseFloat(ethers.formatUnits(ratePerBlock, 18));
-
-    // ==============================================
-    // 👇 核心修复：supply rate 默认多了 100 倍，必须缩小
-    // ==============================================
     rate = rate / 100;
 
     // 复利计算

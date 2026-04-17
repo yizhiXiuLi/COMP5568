@@ -94,11 +94,19 @@
             >
               Deposit / Withdraw wBTC
             </el-button>
+            
             <el-button 
               type="success" 
               @click="$router.push('/borrow')"
             >
               Borrow / Repay cUSD
+            </el-button>
+
+            <el-button 
+              type="warning" 
+              @click="$router.push('/liquidation')"
+            >
+              Liquidation
             </el-button>
           </div>
         </el-card>

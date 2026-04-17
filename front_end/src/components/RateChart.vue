@@ -38,17 +38,18 @@ const formattedUtilization = computed(() => (currentUtilization.value * 100).toF
 const BLOCKS_PER_YEAR = 2628000; 
 
 // 2. 后端给的原始参数 (精度 1e18)
-const RAW_BASE_RATE = 1e14;   // baseBorrowRatePerBlock
-const RAW_SLOPE1 = 1e15;      // slope1PerBlock
-const RAW_SLOPE2 = 5e15;      // slope2PerBlock
-const RAW_KINK = 0.8e18;      // kinkUtilization
+const CONTRACT_CONFIG = {
+  baseBorrowRatePerBlock: 7610350076n,      // 使用 BigInt 处理大数
+  slope1PerBlock: 30441400304n,
+  slope2PerBlock: 342465753424n,
+  kinkUtilization: 800000000000000000n,    // 80%
+};
 
 // 3. 转换为前端小数格式 (强行除以 10000 修正后端的数学错误)
-const FIX_FACTOR = 10000;
-const baseRateDec = (RAW_BASE_RATE / FIX_FACTOR) / 1e18;
-const slope1Dec = (RAW_SLOPE1 / FIX_FACTOR) / 1e18;
-const slope2Dec = (RAW_SLOPE2 / FIX_FACTOR) / 1e18;
-const KINK_POINT = RAW_KINK / 1e18; 
+const baseRateDec = Number(CONTRACT_CONFIG.baseBorrowRatePerBlock) / 1e18;
+const slope1Dec = Number(CONTRACT_CONFIG.slope1PerBlock) / 1e18;
+const slope2Dec = Number(CONTRACT_CONFIG.slope2PerBlock) / 1e18;
+const KINK_POINT = Number(CONTRACT_CONFIG.kinkUtilization) / 1e18;
 
 // 4. 计算年化 APR (小数形式)
 const BASE_APR = baseRateDec * BLOCKS_PER_YEAR; 
